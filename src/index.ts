@@ -1,4 +1,3 @@
-import { ensureServerLogin } from "./auth/serverLogin";
 import { createBot } from "./bot/bot";
 
 /**
@@ -16,10 +15,6 @@ async function main(): Promise<void> {
     );
     process.exit(1);
   }
-
-  console.log("🔐 Проверка логина на сервере...");
-  await ensureServerLogin();
-  console.log("✅ Логин на сервер успешен.");
 
   console.log("🚀 Запуск Telegram-бота...");
 

@@ -1,16 +1,18 @@
 import { captureCookiesFromResponse } from "./serverSession";
 
 /**
- * POST /login на сервер при старте. При ответе не 2xx — процесс завершается с ошибкой.
+ * POST /login на сервер панели.
  * Успешный ответ: куки сохраняются в serverSession (getCookieHeader / withSessionCookies).
  */
-export async function ensureServerLogin(): Promise<void> {
+export async function loginToPanel(): Promise<
+  { ok: true } | { ok: false; error: string }
+> {
   const url = `${process.env.SERVER_URL}:${process.env.SERVER_PORT}/${process.env.SERVER_SUBDOMAIN}/login`;
-  if (!url) {
-    console.error(
-      "❌ Переменная окружения SERVER_URL, SERVER_PORT, SERVER_SUBDOMAIN не установлены!\n" 
-    );
-    process.exit(1);
+  if (!process.env.SERVER_URL || !process.env.SERVER_PORT || !process.env.SERVER_SUBDOMAIN) {
+    return {
+      ok: false,
+      error: "Не заданы SERVER_URL, SERVER_PORT и/или SERVER_SUBDOMAIN.",
+    };
   }
 
   let body: unknown = {};
@@ -19,8 +21,7 @@ export async function ensureServerLogin(): Promise<void> {
     try {
       body = JSON.parse(rawBody);
     } catch {
-      console.error("❌ LOGIN_BODY должен быть валидным JSON.");
-      process.exit(1);
+      return { ok: false, error: "LOGIN_BODY должен быть валидным JSON." };
     }
   }
 
@@ -32,8 +33,7 @@ export async function ensureServerLogin(): Promise<void> {
     try {
       Object.assign(headers, JSON.parse(rawHeaders));
     } catch {
-      console.error("❌ LOGIN_HEADERS должен быть валидным JSON-объектом.");
-      process.exit(1);
+      return { ok: false, error: "LOGIN_HEADERS должен быть валидным JSON-объектом." };
     }
   }
 
@@ -45,19 +45,21 @@ export async function ensureServerLogin(): Promise<void> {
       body: JSON.stringify(body),
     });
   } catch (err) {
-    console.error("❌ Не удалось выполнить запрос логина:", err);
-    process.exit(1);
+    const msg = err instanceof Error ? err.message : String(err);
+    return { ok: false, error: `Не удалось выполнить запрос логина: ${msg}` };
   }
 
   if (!res.ok) {
     const snippet = await res.text().catch(() => "");
-    console.error(
-      `❌ Логин на сервер не удался: ${res.status} ${res.statusText}` +
-        (snippet ? `\n${snippet.slice(0, 500)}` : "")
-    );
-    process.exit(1);
+    return {
+      ok: false,
+      error:
+        `Логин на сервер не удался: ${res.status} ${res.statusText}` +
+        (snippet ? `\n${snippet.slice(0, 500)}` : ""),
+    };
   }
 
   captureCookiesFromResponse(res);
   await res.text().catch(() => {});
+  return { ok: true };
 }

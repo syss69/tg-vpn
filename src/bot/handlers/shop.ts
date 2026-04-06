@@ -119,7 +119,7 @@ async function executePendingPurchase(ctx: BotContext): Promise<void> {
     return;
   }
 
-  const purchaseResult = executePurchase(item.id, userId, {
+  const purchaseResult = await executePurchase(item.id, userId, {
     targetKeyId: pending.targetKeyId,
   });
   if (!purchaseResult.success) {

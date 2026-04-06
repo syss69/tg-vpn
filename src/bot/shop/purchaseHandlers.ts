@@ -1,6 +1,7 @@
 import { UserService } from "../../services/UserService";
 import { KeyService } from "../../services/KeyService";
 import { TrafficService } from "../../services/TrafficService";
+import { PanelApiService } from "../../services/PanelApiService";
 
 export interface PurchaseResult {
   success: boolean;
@@ -11,52 +12,90 @@ interface PurchaseOptions {
   targetKeyId?: string;
 }
 
-type PurchaseHandler = (userId: number, options?: PurchaseOptions) => PurchaseResult;
+type PurchaseHandler = (
+  userId: number,
+  options?: PurchaseOptions
+) => Promise<PurchaseResult>;
 
 const userService = new UserService();
 const keyService = new KeyService();
 const trafficService = new TrafficService();
+const panelApi = new PanelApiService();
+
+function formatKeySuccess(
+  displayValue: string,
+  planMonths: number,
+  expiresAtIso: string
+): string {
+  return (
+    `🔑 Ваш новый API-ключ:\n<code>${displayValue}</code>\n` +
+    `⏳ Срок: <b>${planMonths} мес.</b>\n` +
+    `📅 Действует до: <b>${new Date(expiresAtIso).toLocaleDateString("ru-RU")}</b>`
+  );
+}
 
 const purchaseHandlers: Record<string, PurchaseHandler> = {
-  api_key_1m: (userId: number): PurchaseResult => {
-    const newKey = keyService.generateKey(1);
-    userService.addKeyToUser(userId, newKey);
+  api_key_1m: async (userId: number): Promise<PurchaseResult> => {
+    const panel = await panelApi.createClientForPlan(userId, 1);
+    if (!panel.ok) {
+      return { success: false, details: panel.error };
+    }
+    const stub = keyService.generateKey(1);
+    userService.addKeyToUser(userId, {
+      ...stub,
+      value: panel.displayValue,
+      panelClientUuid: panel.clientId,
+      panelEmail: panel.email,
+    });
 
     return {
       success: true,
-      details:
-        `🔑 Ваш новый API-ключ:\n<code>${newKey.value}</code>\n` +
-        `⏳ Срок: <b>1 месяц</b>\n` +
-        `📅 Действует до: <b>${new Date(newKey.expiresAt ?? "").toLocaleDateString("ru-RU")}</b>`,
+      details: formatKeySuccess(panel.displayValue, 1, stub.expiresAt ?? ""),
     };
   },
-  api_key_3m: (userId: number): PurchaseResult => {
-    const newKey = keyService.generateKey(3);
-    userService.addKeyToUser(userId, newKey);
+  api_key_3m: async (userId: number): Promise<PurchaseResult> => {
+    const panel = await panelApi.createClientForPlan(userId, 3);
+    if (!panel.ok) {
+      return { success: false, details: panel.error };
+    }
+    const stub = keyService.generateKey(3);
+    userService.addKeyToUser(userId, {
+      ...stub,
+      value: panel.displayValue,
+      panelClientUuid: panel.clientId,
+      panelEmail: panel.email,
+    });
 
     return {
       success: true,
-      details:
-        `🔑 Ваш новый API-ключ:\n<code>${newKey.value}</code>\n` +
-        `⏳ Срок: <b>3 месяца</b>\n` +
-        `📅 Действует до: <b>${new Date(newKey.expiresAt ?? "").toLocaleDateString("ru-RU")}</b>`,
+      details: formatKeySuccess(panel.displayValue, 3, stub.expiresAt ?? ""),
     };
   },
-  api_key_12m: (userId: number): PurchaseResult => {
-    const newKey = keyService.generateKey(12);
-    userService.addKeyToUser(userId, newKey);
+  api_key_12m: async (userId: number): Promise<PurchaseResult> => {
+    const panel = await panelApi.createClientForPlan(userId, 12);
+    if (!panel.ok) {
+      return { success: false, details: panel.error };
+    }
+    const stub = keyService.generateKey(12);
+    userService.addKeyToUser(userId, {
+      ...stub,
+      value: panel.displayValue,
+      panelClientUuid: panel.clientId,
+      panelEmail: panel.email,
+    });
 
     return {
       success: true,
-      details:
-        `🔑 Ваш новый API-ключ:\n<code>${newKey.value}</code>\n` +
-        `⏳ Срок: <b>12 месяцев</b>\n` +
-        `📅 Действует до: <b>${new Date(newKey.expiresAt ?? "").toLocaleDateString("ru-RU")}</b>`,
+      details: formatKeySuccess(panel.displayValue, 12, stub.expiresAt ?? ""),
     };
   },
 };
 
-export function executePurchase(itemId: string, userId: number, options?: PurchaseOptions): PurchaseResult {
+export async function executePurchase(
+  itemId: string,
+  userId: number,
+  options?: PurchaseOptions
+): Promise<PurchaseResult> {
   const handler = purchaseHandlers[itemId];
   const trafficGb = trafficService.parseGbFromItemId(itemId);
 
@@ -68,18 +107,53 @@ export function executePurchase(itemId: string, userId: number, options?: Purcha
       };
     }
 
+    const user = userService.findById(userId);
+    const key = user?.purchasedKeys.find((k) => k.id === options.targetKeyId);
+    if (!key) {
+      return {
+        success: false,
+        details: "Выбранный ключ не найден.",
+      };
+    }
+    if (!key.panelClientUuid || !key.panelEmail) {
+      return {
+        success: false,
+        details:
+          "Этот ключ создан до подключения панели. Купите новый ключ или обратитесь в поддержку.",
+      };
+    }
+
+    const inboundId = panelApi.getInboundId();
+    if (inboundId === null) {
+      return {
+        success: false,
+        details: "На сервере не настроен PANEL_INBOUND_ID.",
+      };
+    }
+
+    const panel = await panelApi.addTrafficGb(
+      inboundId,
+      key.panelClientUuid,
+      key.panelEmail,
+      trafficGb
+    );
+    if (!panel.ok) {
+      return { success: false, details: panel.error };
+    }
+
     const attached = userService.addTrafficToKey(userId, options.targetKeyId, trafficGb);
     if (!attached) {
       return {
         success: false,
-        details: "Выбранный ключ не найден.",
+        details: "Панель обновлена, но не удалось сохранить ключ в базе бота. Обратитесь в поддержку.",
       };
     }
 
     const trafficCode = trafficService.getTrafficCode(trafficGb);
     return {
       success: true,
-      details: `🌐 Трафик <b>+${trafficGb} GB</b> привязан к выбранному ключу.\n🧩 Пакет: <code>${trafficCode}</code>`,
+      details:
+        `🌐 Трафик <b>+${trafficGb} GB</b> привязан к выбранному ключу.\n🧩 Пакет: <code>${trafficCode}</code>`,
     };
   }
 

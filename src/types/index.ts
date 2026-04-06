@@ -6,6 +6,10 @@ export interface ApiKey {
   id: string;
   /** Значение ключа */
   value: string;
+  /** Идентификатор клиента в панели (UUID для VLESS/VMESS, пароль для Trojan и т.д.) */
+  panelClientUuid?: string;
+  /** Email клиента в панели */
+  panelEmail?: string;
   /** Тариф ключа в месяцах (1, 3, 12) */
   planMonths?: number;
   /** Дата окончания срока действия ключа (ISO строка) */
