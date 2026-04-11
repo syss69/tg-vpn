@@ -23,14 +23,18 @@ const trafficService = new TrafficService();
 const panelApi = new PanelApiService();
 
 function formatKeySuccess(
-  displayValue: string,
+  keyValue: string,
+  panelClientUuid: string,
   planMonths: number,
-  expiresAtIso: string
+  expiresAtIso: string,
+  accessUrl?: string
 ): string {
   return (
-    `🔑 Ваш новый API-ключ:\n<code>${displayValue}</code>\n` +
+    `🔑 Ваш новый ключ:\n<code>${keyValue}</code>\n` +
+    `🆔 ID ключа (UUID):\n<code>${panelClientUuid}</code>\n` +
     `⏳ Срок: <b>${planMonths} мес.</b>\n` +
-    `📅 Действует до: <b>${new Date(expiresAtIso).toLocaleDateString("ru-RU")}</b>`
+    `📅 Действует до: <b>${new Date(expiresAtIso).toLocaleDateString("ru-RU")}</b>` +
+    (accessUrl ? `\n\n🔗 <b>Ссылка (VLESS)</b>:\n<code>${accessUrl}</code>` : "")
   );
 }
 
@@ -43,14 +47,20 @@ const purchaseHandlers: Record<string, PurchaseHandler> = {
     const stub = keyService.generateKey(1);
     userService.addKeyToUser(userId, {
       ...stub,
-      value: panel.displayValue,
       panelClientUuid: panel.clientId,
       panelEmail: panel.email,
+      accessUrl: panel.accessUrl,
     });
 
     return {
       success: true,
-      details: formatKeySuccess(panel.displayValue, 1, stub.expiresAt ?? ""),
+      details: formatKeySuccess(
+        stub.value,
+        panel.clientId,
+        1,
+        stub.expiresAt ?? "",
+        panel.accessUrl
+      ),
     };
   },
   api_key_3m: async (userId: number): Promise<PurchaseResult> => {
@@ -61,14 +71,20 @@ const purchaseHandlers: Record<string, PurchaseHandler> = {
     const stub = keyService.generateKey(3);
     userService.addKeyToUser(userId, {
       ...stub,
-      value: panel.displayValue,
       panelClientUuid: panel.clientId,
       panelEmail: panel.email,
+      accessUrl: panel.accessUrl,
     });
 
     return {
       success: true,
-      details: formatKeySuccess(panel.displayValue, 3, stub.expiresAt ?? ""),
+      details: formatKeySuccess(
+        stub.value,
+        panel.clientId,
+        3,
+        stub.expiresAt ?? "",
+        panel.accessUrl
+      ),
     };
   },
   api_key_12m: async (userId: number): Promise<PurchaseResult> => {
@@ -79,14 +95,20 @@ const purchaseHandlers: Record<string, PurchaseHandler> = {
     const stub = keyService.generateKey(12);
     userService.addKeyToUser(userId, {
       ...stub,
-      value: panel.displayValue,
       panelClientUuid: panel.clientId,
       panelEmail: panel.email,
+      accessUrl: panel.accessUrl,
     });
 
     return {
       success: true,
-      details: formatKeySuccess(panel.displayValue, 12, stub.expiresAt ?? ""),
+      details: formatKeySuccess(
+        stub.value,
+        panel.clientId,
+        12,
+        stub.expiresAt ?? "",
+        panel.accessUrl
+      ),
     };
   },
 };

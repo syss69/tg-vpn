@@ -3,21 +3,19 @@
     {
       "id": 663052525,
       "username": "sxzvr69",
-      "balance": 50,
+      "balance": 6700,
       "purchasedKeys": [
         {
-          "id": "960e4b15f7cbeba0",
-          "value": "APIKEY-F320-F9FD-41AF-1A21D24CC008",
-          "purchasedAt": "2026-03-25T19:57:31.762Z",
-          "totalTrafficGb": 10,
-          "usedTrafficGb": 5
-        },
-        {
-          "id": "fdce1aaf335e1a51",
-          "value": "APIKEY-7159-A128-E6E8-A87B7A01FBD1",
-          "purchasedAt": "2026-03-26T14:42:04.671Z",
+          "id": "8da22d33bfa72e1a",
+          "value": "APIKEY-F278-3F71-5A77-D07599B8A47B",
+          "planMonths": 3,
+          "expiresAt": "2026-07-07T15:18:16.543Z",
           "totalTrafficGb": 100,
-          "usedTrafficGb": 0
+          "usedTrafficGb": 0,
+          "purchasedAt": "2026-04-07T15:18:16.543Z",
+          "panelClientUuid": "93629236-4a2c-499e-9a16-67c14fed3afd",
+          "panelEmail": "tg663052525-e461b390@tg.bot",
+          "accessUrl": "vless://93629236-4a2c-499e-9a16-67c14fed3afd@alien7112.online:443?type=tcp&encryption=none&security=reality&pbk=gfYEG1gQHEuoEfSYS08vmidQ9TkJIwwOuX7XYIP9i2k&fp=chrome&sni=eh.vk.com&sid=da&spx=%2F#For_White_List-tg663052525-e461b390%40tg.bot"
         }
       ],
       "createdAt": "2026-03-25T19:56:50.826Z",
@@ -29,12 +27,12 @@
           "purchasedAt": "2026-03-26T15:27:27.979Z"
         }
       ],
-      "trafficWalletGb": 0
+      "trafficWalletGb": 220
     },
     {
       "id": 1087378249,
       "username": "p_kash_nik",
-      "balance": 991550,
+      "balance": 986600,
       "purchasedKeys": [
         {
           "id": "46f856f23f98e0dd",
@@ -91,6 +89,30 @@
           "totalTrafficGb": 100,
           "usedTrafficGb": 0,
           "purchasedAt": "2026-03-26T16:03:33.856Z"
+        },
+        {
+          "id": "e9a744109a07c0b0",
+          "value": "APIKEY-E4D5-459B-FC98-83841E6949BF",
+          "planMonths": 12,
+          "expiresAt": "2027-04-07T20:59:06.911Z",
+          "totalTrafficGb": 0,
+          "usedTrafficGb": 0,
+          "purchasedAt": "2026-04-07T20:59:06.911Z",
+          "panelClientUuid": "010bb6fa-fa99-45d7-899c-5eccd5dead8a",
+          "panelEmail": "tg1087378249-3ed725d0@tg.bot",
+          "accessUrl": "vless://010bb6fa-fa99-45d7-899c-5eccd5dead8a@alien7112.online:443?type=tcp&encryption=none&security=reality&pbk=gfYEG1gQHEuoEfSYS08vmidQ9TkJIwwOuX7XYIP9i2k&fp=chrome&sni=eh.vk.com&sid=da&spx=%2F#For_White_List-tg1087378249-3ed725d0%40tg.bot"
+        },
+        {
+          "id": "d31942eeeff75702",
+          "value": "APIKEY-BB40-981C-1C81-D4D051D809AD",
+          "planMonths": 1,
+          "expiresAt": "2026-05-07T21:01:13.398Z",
+          "totalTrafficGb": 100,
+          "usedTrafficGb": 0,
+          "purchasedAt": "2026-04-07T21:01:13.398Z",
+          "panelClientUuid": "65ad0541-6187-43df-8d14-564657f3d199",
+          "panelEmail": "tg1087378249-daabe987@tg.bot",
+          "accessUrl": "vless://65ad0541-6187-43df-8d14-564657f3d199@alien7112.online:443?type=tcp&encryption=none&security=reality&pbk=gfYEG1gQHEuoEfSYS08vmidQ9TkJIwwOuX7XYIP9i2k&fp=chrome&sni=eh.vk.com&sid=da&spx=%2F#For_White_List-tg1087378249-daabe987%40tg.bot"
         }
       ],
       "createdAt": "2026-03-25T20:14:47.272Z",
@@ -108,7 +130,7 @@
           "purchasedAt": "2026-03-26T15:28:35.316Z"
         }
       ],
-      "trafficWalletGb": 200
+      "trafficWalletGb": 300
     }
   ]
 }

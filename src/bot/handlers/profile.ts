@@ -34,11 +34,14 @@ export async function handleProfile(ctx: BotContext): Promise<void> {
             ? new Date(k.expiresAt).toLocaleDateString("ru-RU")
             : "без срока";
           const status = isExpired ? "сгорел" : "активен";
+          const urlLine = k.accessUrl ? `\n      🔗 URL: <code>${k.accessUrl}</code>` : "";
           return (
             `  ${i + 1}. <code>${k.value}</code>\n` +
+            (k.panelClientUuid ? `      🆔 UUID: <code>${k.panelClientUuid}</code>\n` : "") +
             `      ⏱ Статус: ${status}, до ${expiryLabel}\n` +
             `      📊 Трафик: ${remaining} GB из ${total} GB\n` +
-            `      📅 ${new Date(k.purchasedAt).toLocaleDateString("ru-RU")}`
+            `      📅 ${new Date(k.purchasedAt).toLocaleDateString("ru-RU")}` +
+            urlLine
           );
         }
       )

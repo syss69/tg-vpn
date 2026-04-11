@@ -13,6 +13,10 @@ interface InboundApi {
   id: number;
   protocol: string;
   settings: string;
+  /** Порт инбаунда (нужен для сборки share-link). */
+  port?: number;
+  /** streamSettings (в 3x-ui может быть JSON-строкой или уже объектом). */
+  streamSettings?: unknown;
 }
 
 export class PanelApiService {
@@ -145,6 +149,88 @@ export class PanelApiService {
     return r.data.obj ?? null;
   }
 
+  private publicHost(): string | null {
+    const raw = process.env.SERVER_URL;
+    if (!raw) return null;
+    try {
+      return new URL(raw).hostname;
+    } catch {
+      // fallback для значений без протокола
+      return raw.replace(/^https?:\/\//i, "").replace(/\/.*$/, "") || null;
+    }
+  }
+
+  private tryBuildVlessRealityUrl(args: {
+    inbound: InboundApi;
+    uuid: string;
+    tag: string;
+  }): string | null {
+    const host = this.publicHost();
+    const port = args.inbound.port;
+    const stream = args.inbound.streamSettings;
+    if (!host || !port || !stream) return null;
+
+    const streamJson: any =
+      typeof stream === "string"
+        ? (() => {
+            try {
+              return JSON.parse(stream);
+            } catch {
+              return null;
+            }
+          })()
+        : stream;
+    if (!streamJson) return null;
+
+    const network: string = String(streamJson.network ?? "tcp");
+    const security: string = String(streamJson.security ?? "");
+    if (security.toLowerCase() !== "reality") return null;
+
+    const reality = streamJson.realitySettings ?? {};
+    // В разных версиях 3x-ui поля realitySettings могут лежать либо на верхнем уровне,
+    // либо внутри realitySettings.settings.
+    const rs = reality.settings ?? reality;
+    const pbk =
+      reality.publicKey !== undefined
+        ? String(reality.publicKey)
+        : rs.publicKey !== undefined
+          ? String(rs.publicKey)
+          : "";
+    const fp = rs.fingerprint !== undefined ? String(rs.fingerprint) : "";
+
+    const serverNames = reality.serverNames ?? rs.serverNames;
+    const sni =
+      serverNames?.[0] !== undefined
+        ? String(serverNames[0])
+        : rs.serverName !== undefined
+          ? String(rs.serverName)
+          : "";
+
+    const shortIds = reality.shortIds ?? rs.shortIds;
+    const sid = shortIds?.[0] !== undefined ? String(shortIds[0]) : "";
+
+    const spx = rs.spiderX !== undefined ? String(rs.spiderX) : "";
+
+    if (!pbk) return null;
+
+    // URL для кастомной схемы vless:// собираем вручную, чтобы корректно кодировать hash-часть.
+    const params = new URLSearchParams();
+    params.set("type", network);
+    params.set("encryption", "none");
+    params.set("security", "reality");
+    params.set("pbk", pbk);
+    if (fp) params.set("fp", fp);
+    if (sni) params.set("sni", sni);
+    if (sid) params.set("sid", sid);
+    if (spx) params.set("spx", spx);
+
+    return (
+      `vless://${args.uuid}@${host}:${port}` +
+      `?${params.toString()}` +
+      `#${encodeURIComponent(args.tag)}`
+    );
+  }
+
   /**
    * Создаёт клиента на инбаунде. totalGB в теле API — байты (как в 3x-ui).
    */
@@ -152,7 +238,7 @@ export class PanelApiService {
     telegramUserId: number,
     planMonths: number
   ): Promise<
-    | { ok: true; clientId: string; email: string; displayValue: string }
+    | { ok: true; clientId: string; email: string; displayValue: string; accessUrl?: string }
     | { ok: false; error: string }
   > {
     const inboundId = this.getInboundId();
@@ -167,18 +253,22 @@ export class PanelApiService {
 
     const protocol = (inbound.protocol || "").toLowerCase();
     const email = `tg${telegramUserId}-${randomBytes(4).toString("hex")}@tg.bot`;
-    const expiry = new Date();
-    expiry.setMonth(expiry.getMonth() + planMonths);
-    const expiryMs = expiry.getTime();
+    const subId = randomBytes(8).toString("hex");
+    // В 3x-ui expiryTime может быть отрицательным числом (длительность в мс).
+    // 30 дней = 2_592_000_000 мс, 60 дней = 5_184_000_000 мс и т.д.
+    const expiryMs = -Math.floor(planMonths * 30 * 24 * 60 * 60 * 1000);
 
     const base = {
       email,
       limitIp: 0,
-      totalGB: 0,
+      // В 3x-ui totalGB=0 обычно означает "безлимит".
+      // Чтобы ключ создавался "с нулём трафика" до докупки, задаём минимальный лимит (1 байт).
+      // Дальше докупка трафика увеличит лимит до нужного значения.
+      totalGB: 1,
       expiryTime: expiryMs,
       enable: true,
       tgId: telegramUserId,
-      subId: randomBytes(8).toString("hex"),
+      subId,
       flow: "",
       reset: 0,
       comment: "",
@@ -227,7 +317,13 @@ export class PanelApiService {
       return { ok: false, error: add.error };
     }
 
-    return { ok: true, clientId, email, displayValue };
+    const tag = `For_White_List-${email}`;
+    const accessUrl =
+      protocol === "vless"
+        ? this.tryBuildVlessRealityUrl({ inbound, uuid: clientId, tag })
+        : null;
+
+    return { ok: true, clientId, email, displayValue, accessUrl: accessUrl ?? undefined };
   }
 
   /**

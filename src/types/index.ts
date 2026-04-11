@@ -10,6 +10,8 @@ export interface ApiKey {
   panelClientUuid?: string;
   /** Email клиента в панели */
   panelEmail?: string;
+  /** Готовая ссылка доступа (например, vless://...), если удалось собрать */
+  accessUrl?: string;
   /** Тариф ключа в месяцах (1, 3, 12) */
   planMonths?: number;
   /** Дата окончания срока действия ключа (ISO строка) */
