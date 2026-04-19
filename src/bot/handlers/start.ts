@@ -14,8 +14,12 @@ export async function handleStart(ctx: BotContext): Promise<void> {
 
   if (!userId) return;
 
-  // Получаем или создаём пользователя в БД
-  userService.getOrCreate(userId, username);
+  await userService.ensureUserOnBotStart({
+    tgId: userId,
+    username,
+    firstName: ctx.from?.first_name,
+    languageCode: ctx.from?.language_code,
+  });
 
   const firstName = ctx.from?.first_name ?? "друг";
 

@@ -32,6 +32,10 @@ export interface User {
   id: number;
   /** Username в Telegram (может отсутствовать) */
   username?: string;
+  /** Имя из Telegram (кэш при первом /start) */
+  firstName?: string;
+  /** Код языка из Telegram (кэш при первом /start) */
+  languageCode?: string;
   /** Баланс пользователя (в условных единицах) */
   balance: number;
   /** Список купленных API-ключей */
@@ -40,13 +44,6 @@ export interface User {
   trafficWalletGb?: number;
   /** Дата регистрации */
   createdAt: string;
-}
-
-/**
- * Структура локальной JSON-базы данных
- */
-export interface Database {
-  users: User[];
 }
 
 /**

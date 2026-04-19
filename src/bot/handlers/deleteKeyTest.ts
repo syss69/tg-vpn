@@ -25,7 +25,7 @@ export async function handleDeleteKeyTest(ctx: BotContext): Promise<void> {
     return;
   }
 
-  const result = userService.deleteKeyByNumber(userId, keyNumber);
+  const result = await userService.deleteKeyByNumber(userId, keyNumber);
   if (!result.success) {
     await ctx.reply(`❌ ${result.reason ?? "Не удалось удалить ключ."}`);
     return;

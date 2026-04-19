@@ -1,4 +1,6 @@
 import { createBot } from "./bot/bot";
+import { initDatabase } from "./db/init";
+import { closePool } from "./db/pool";
 
 /**
  * Точка входа приложения.
@@ -16,25 +18,45 @@ async function main(): Promise<void> {
     process.exit(1);
   }
 
+  if (!process.env.DATABASE_URL) {
+    console.error(
+      "❌ Переменная DATABASE_URL не установлена!\n" +
+        "Укажите строку подключения PostgreSQL в .env, например:\n" +
+        "DATABASE_URL=postgresql://user:pass@localhost:5432/tg_bot"
+    );
+    process.exit(1);
+  }
+
   console.log("🚀 Запуск Telegram-бота...");
+
+  try {
+    await initDatabase();
+    console.log("✅ Подключение к PostgreSQL установлено.");
+  } catch (err) {
+    console.error("❌ Не удалось подключиться к PostgreSQL:", err);
+    process.exit(1);
+  }
 
   const bot = createBot(token);
 
-  // Корректное завершение при SIGINT / SIGTERM
-  const shutdown = () => {
+  const shutdown = async () => {
     console.log("\n🛑 Остановка бота...");
-    bot.stop();
+    await bot.stop();
+    await closePool();
     process.exit(0);
   };
 
-  process.once("SIGINT", shutdown);
-  process.once("SIGTERM", shutdown);
+  process.once("SIGINT", () => {
+    void shutdown();
+  });
+  process.once("SIGTERM", () => {
+    void shutdown();
+  });
 
-  // Запускаем бота через long polling
   await bot.start({
     onStart: (info) => {
       console.log(`✅ Бот @${info.username} успешно запущен!`);
-      console.log(`📁 База данных: src/data/db.json`);
+      console.log(`📁 База данных: PostgreSQL`);
     },
   });
 }

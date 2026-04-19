@@ -45,7 +45,7 @@ const purchaseHandlers: Record<string, PurchaseHandler> = {
       return { success: false, details: panel.error };
     }
     const stub = keyService.generateKey(1);
-    userService.addKeyToUser(userId, {
+    await userService.addKeyToUser(userId, {
       ...stub,
       panelClientUuid: panel.clientId,
       panelEmail: panel.email,
@@ -69,7 +69,7 @@ const purchaseHandlers: Record<string, PurchaseHandler> = {
       return { success: false, details: panel.error };
     }
     const stub = keyService.generateKey(3);
-    userService.addKeyToUser(userId, {
+    await userService.addKeyToUser(userId, {
       ...stub,
       panelClientUuid: panel.clientId,
       panelEmail: panel.email,
@@ -93,7 +93,7 @@ const purchaseHandlers: Record<string, PurchaseHandler> = {
       return { success: false, details: panel.error };
     }
     const stub = keyService.generateKey(12);
-    userService.addKeyToUser(userId, {
+    await userService.addKeyToUser(userId, {
       ...stub,
       panelClientUuid: panel.clientId,
       panelEmail: panel.email,
@@ -129,7 +129,7 @@ export async function executePurchase(
       };
     }
 
-    const user = userService.findById(userId);
+    const user = await userService.findById(userId);
     const key = user?.purchasedKeys.find((k) => k.id === options.targetKeyId);
     if (!key) {
       return {
@@ -163,7 +163,11 @@ export async function executePurchase(
       return { success: false, details: panel.error };
     }
 
-    const attached = userService.addTrafficToKey(userId, options.targetKeyId, trafficGb);
+    const attached = await userService.addTrafficToKey(
+      userId,
+      options.targetKeyId,
+      trafficGb
+    );
     if (!attached) {
       return {
         success: false,

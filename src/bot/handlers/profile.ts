@@ -15,7 +15,7 @@ export async function handleProfile(ctx: BotContext): Promise<void> {
   if (!userId) return;
 
   // Получаем данные пользователя из сервисного слоя
-  const user = userService.getOrCreate(userId, ctx.from?.username);
+  const user = await userService.getOrCreate(userId, ctx.from?.username);
 
   // Формируем список ключей
   let keysSection: string;

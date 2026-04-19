@@ -44,7 +44,7 @@ async function showPurchaseConfirmation(
     return;
   }
 
-  const user = userService.getOrCreate(userId, ctx.from?.username);
+  const user = await userService.getOrCreate(userId, ctx.from?.username);
   const balance = user.balance;
   const deficit = Math.max(item.price - balance, 0);
   const keyLine = targetKeyId
@@ -82,7 +82,7 @@ async function executePendingPurchase(ctx: BotContext): Promise<void> {
     return;
   }
 
-  const user = userService.getOrCreate(userId, ctx.from?.username);
+  const user = await userService.getOrCreate(userId, ctx.from?.username);
   if (user.balance < item.price) {
     ctx.session.pendingPurchase = undefined;
     await ctx.editMessageText(
@@ -110,7 +110,7 @@ async function executePendingPurchase(ctx: BotContext): Promise<void> {
     }
   }
 
-  const deducted = userService.deductBalance(userId, item.price);
+  const deducted = await userService.deductBalance(userId, item.price);
   if (!deducted) {
     ctx.session.pendingPurchase = undefined;
     await ctx.editMessageText("⚠️ Произошла ошибка при списании средств. Попробуйте снова.", {
@@ -123,7 +123,7 @@ async function executePendingPurchase(ctx: BotContext): Promise<void> {
     targetKeyId: pending.targetKeyId,
   });
   if (!purchaseResult.success) {
-    userService.topUpBalance(userId, item.price);
+    await userService.topUpBalance(userId, item.price);
     ctx.session.pendingPurchase = undefined;
     await ctx.editMessageText(`⚠️ ${purchaseResult.details}\n\nСредства были возвращены на баланс.`, {
       reply_markup: backToMenuKeyboard,
@@ -131,7 +131,7 @@ async function executePendingPurchase(ctx: BotContext): Promise<void> {
     return;
   }
 
-  const updatedUser = userService.findById(userId);
+  const updatedUser = await userService.findById(userId);
   let extraLine = "";
   if (pending.targetKeyId) {
     const updatedKey = updatedUser?.purchasedKeys.find((k) => k.id === pending.targetKeyId);
@@ -201,11 +201,11 @@ export async function handleBuyItem(ctx: BotContext): Promise<void> {
     return;
   }
 
-  const user = userService.getOrCreate(userId, ctx.from?.username);
+  const user = await userService.getOrCreate(userId, ctx.from?.username);
 
   const trafficMatch = item.id.match(/^white_list_(\d+)$/);
   if (trafficMatch) {
-    const activeKeys = userService.getActiveKeys(userId);
+    const activeKeys = await userService.getActiveKeys(userId);
     if (activeKeys.length === 0) {
       await ctx.editMessageText(
         `⚠️ Нет активных ключей для привязки трафика.\n\n` +
@@ -254,7 +254,7 @@ export async function handleApplyTrafficToKey(ctx: BotContext): Promise<void> {
     return;
   }
 
-  const user = userService.getOrCreate(userId, ctx.from?.username);
+  const user = await userService.getOrCreate(userId, ctx.from?.username);
   const selectedKey = user.purchasedKeys.find((k) => k.id === parsed.keyId);
   if (!selectedKey) {
     await ctx.editMessageText("⚠️ Выбранный ключ не найден.", {
@@ -333,7 +333,7 @@ export async function handleTopUpAmount(ctx: BotContext): Promise<void> {
   ctx.session.awaitingTopUpAmount = false;
 
   // Пополняем баланс через сервисный слой
-  const updatedUser = userService.topUpBalance(userId, amount);
+  const updatedUser = await userService.topUpBalance(userId, amount);
 
   if (!updatedUser) {
     await ctx.reply("⚠️ Ошибка при пополнении. Попробуйте снова.");

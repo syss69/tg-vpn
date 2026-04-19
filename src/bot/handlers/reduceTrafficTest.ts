@@ -34,7 +34,7 @@ export async function handleReduceTrafficTest(ctx: BotContext): Promise<void> {
     return;
   }
 
-  const result = userService.reduceTrafficByKeyNumber(userId, keyNumber, gb);
+  const result = await userService.reduceTrafficByKeyNumber(userId, keyNumber, gb);
   if (!result.success) {
     await ctx.reply(`❌ ${result.reason ?? "Не удалось списать трафик."}`);
     return;

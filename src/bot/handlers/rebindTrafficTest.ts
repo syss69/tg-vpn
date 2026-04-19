@@ -33,7 +33,11 @@ export async function handleRebindTrafficTest(ctx: BotContext): Promise<void> {
     return;
   }
 
-  const result = userService.rebindRemainingTrafficByNumbers(userId, fromNumber, toNumber);
+  const result = await userService.rebindRemainingTrafficByNumbers(
+    userId,
+    fromNumber,
+    toNumber
+  );
   if (!result.success) {
     await ctx.reply(`❌ ${result.reason ?? "Не удалось перепривязать трафик."}`);
     return;
