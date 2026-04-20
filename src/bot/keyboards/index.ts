@@ -9,7 +9,9 @@ export const mainMenuKeyboard = new InlineKeyboard()
   .text("👤 Профиль", "profile")
   .text("🛒 Магазин", "shop")
   .row()
-  .text("💳 Пополнить баланс", "top_up");
+  .text("💳 Пополнить баланс", "top_up")
+  .row()
+  .text("📱 Скачать приложение", "download_app");
 
 /**
  * Клавиатура для экрана «недостаточно средств»

@@ -4,6 +4,7 @@ import { SessionData } from "../types";
 // Импорт обработчиков
 import { handleStart, handleBackToMenu } from "./handlers/start";
 import { handleProfile } from "./handlers/profile";
+import { handleDownloadApp } from "./handlers/downloadApp";
 import {
   handleApplyTrafficToSubscription,
   handleBuyItem,
@@ -50,6 +51,7 @@ export function createBot(token: string): Bot<BotContext> {
   bot.callbackQuery("confirm_purchase", handleConfirmPurchase);
   bot.callbackQuery("cancel_purchase", handleCancelPurchase);
   bot.callbackQuery("top_up", handleTopUp);
+  bot.callbackQuery("download_app", handleDownloadApp);
   bot.callbackQuery("back_to_menu", handleBackToMenu);
 
   // --- Обработка текстовых сообщений ---

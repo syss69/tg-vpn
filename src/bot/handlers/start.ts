@@ -4,6 +4,25 @@ import { mainMenuKeyboard } from "../keyboards";
 
 const userService = new UserService();
 
+function buildMainMenuText(firstName: string): string {
+  return (
+    `👋 Рады вас видеть, <b>${firstName}</b>!\n\n` +
+    `Мы предоставляем VLESS-конфигурации, специально разработанные для оптимизации маршрутов к устаревшему зарубежному оборудованию различных онлайн-платформ.\n\n` +
+    `<b>Почему выбирают нас:</b>\n\n` +
+    `1. <b>Высокая скорость:</b> Протокол VLESS обеспечивает минимальные задержки при передаче данных.\n` +
+    `2. <b>Эффективная маршрутизация:</b> Оптимизируем доступ к устаревшим мощностям иностранных сервисов.\n` +
+    `3. <b>Быстрый старт:</b> Настройка занимает всего пару минут и не требует специальных навыков.\n` +
+    `4. <b>Безопасность, прозрачность и конфиденциальность:</b>\n\n` +
+    `💳 Выберите тариф и начните пользоваться сервисом уже сегодня!\n\n` +
+    `💬 Поддержка: \n\n` +
+    `⚠️ <i>Сервис предоставляет инструменты для оптимизации маршрутизации трафика к устаревшему иностранному оборудованию. Сервис действует в полном соответствии с законодательством РФ. Пользователь самостоятельно несёт ответственность за способы использования предоставляемых конфигураций.</i>\n\n` +
+    `<a href="https://telegra.ph/Pochemu-my-razdelyaem-prilozhenie-i-konfiguraciyu-vmesto-VPN-v-odnu-knopku-04-20">📖 Почему мы используем отдельное приложение?</a>\n` +
+    `<a href="https://telegra.ph/Politika-konfidencialnosti-04-01-26">📖 Политика конфиденциальности</a>\n` +
+    `<a href="https://telegra.ph/Polzovatelskoe-soglashenie-04-01-19">📖 Пользовательское соглашение</a>\n\n` +
+    `Выберите действие:`
+  );
+}
+
 /**
  * Обработчик команды /start.
  * Регистрирует пользователя (если новый) и показывает главное меню.
@@ -24,10 +43,7 @@ export async function handleStart(ctx: BotContext): Promise<void> {
   const firstName = ctx.from?.first_name ?? "друг";
 
   await ctx.reply(
-    `👋 Привет, <b>${firstName}</b>!\n\n` +
-      `Добро пожаловать в магазин подписок.\n` +
-      `Здесь вы можете оформить подписку на доступ к сервису и докупить трафик ускорения.\n\n` +
-      `Выберите действие:`,
+    buildMainMenuText(firstName),
     {
       parse_mode: "HTML",
       reply_markup: mainMenuKeyboard,
@@ -40,8 +56,9 @@ export async function handleStart(ctx: BotContext): Promise<void> {
  */
 export async function handleBackToMenu(ctx: BotContext): Promise<void> {
   await ctx.answerCallbackQuery();
+  const firstName = ctx.from?.first_name ?? "друг";
   await ctx.editMessageText(
-    `🏠 <b>Главное меню</b>\n\nВыберите действие:`,
+    buildMainMenuText(firstName),
     {
       parse_mode: "HTML",
       reply_markup: mainMenuKeyboard,
