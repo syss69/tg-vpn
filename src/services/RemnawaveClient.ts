@@ -149,8 +149,13 @@ export class RemnawaveClient {
     email?: string;
     trafficLimitBytes?: number;
     trafficLimitStrategy?: "NO_RESET" | "DAY" | "WEEK" | "MONTH";
+    hwidDeviceLimit?: number;
+    description?: string;
+    /** Если задано — подставляется вместо REMNAWAVE_ACTIVE_INTERNAL_SQUADS */
+    activeInternalSquads?: string[];
   }): Promise<{ ok: true; user: RemnawaveUserResponse } | { ok: false; error: string }> {
-    const squads = parseActiveInternalSquads();
+    const squads =
+      params.activeInternalSquads !== undefined ? params.activeInternalSquads : parseActiveInternalSquads();
     const body: Record<string, unknown> = {
       username: params.username,
       status: "ACTIVE",
@@ -165,6 +170,12 @@ export class RemnawaveClient {
     }
     if (params.trafficLimitStrategy) {
       body.trafficLimitStrategy = params.trafficLimitStrategy;
+    }
+    if (params.hwidDeviceLimit !== undefined) {
+      body.hwidDeviceLimit = params.hwidDeviceLimit;
+    }
+    if (params.description !== undefined) {
+      body.description = params.description;
     }
     if (squads.length > 0) {
       body.activeInternalSquads = squads;
@@ -201,4 +212,59 @@ export class RemnawaveClient {
     const base = `tg${telegramUserId}_${suffix}`;
     return base.length <= 36 ? base : base.slice(0, 36);
   }
+
+  /**
+   * Имя для подписки «Стандарт»: @username в Telegram (только [a-zA-Z0-9_-]) или `id{telegramId}_{8 hex}`.
+   */
+  static makeUsernameFromTelegram(telegramUserId: number, tgUsername?: string): string {
+    if (tgUsername) {
+      let s = tgUsername.replace(/^@/, "").replace(/[^a-zA-Z0-9_-]/g, "").toLowerCase();
+      if (s.length < 3) {
+        s = `id${telegramUserId}`;
+      }
+      return s.slice(0, 36);
+    }
+    const tail = randomBytes(4).toString("hex");
+    return `id${telegramUserId}_${tail}`.slice(0, 36);
+  }
+
+  /**
+   * Ищет UUID internal squad по имени (например Default-Squad). Ответ API может отличаться по версии — разбор максимально мягкий.
+   */
+  async findInternalSquadUuidByName(name: string): Promise<string | null> {
+    const result = await remnawaveFetchJson<unknown>("GET", "/api/internal-squads/");
+    if (!result.ok) {
+      return null;
+    }
+    const needle = name.trim().toLowerCase();
+    const candidates = collectObjectsWithUuidAndName(result.data);
+    for (const c of candidates) {
+      if (c.name && c.name.toLowerCase() === needle && c.uuid) {
+        return c.uuid;
+      }
+    }
+    return null;
+  }
+}
+
+function collectObjectsWithUuidAndName(
+  root: unknown
+): Array<{ uuid: string; name: string }> {
+  const out: Array<{ uuid: string; name: string }> = [];
+  const visit = (v: unknown): void => {
+    if (!v || typeof v !== "object") return;
+    if (Array.isArray(v)) {
+      for (const x of v) visit(x);
+      return;
+    }
+    const o = v as Record<string, unknown>;
+    if (typeof o.uuid === "string" && typeof o.name === "string") {
+      out.push({ uuid: o.uuid, name: o.name });
+    }
+    for (const val of Object.values(o)) {
+      if (val && typeof val === "object") visit(val);
+    }
+  };
+  visit(root);
+  return out;
 }

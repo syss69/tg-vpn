@@ -1,4 +1,8 @@
 import { randomBytes } from "crypto";
+import {
+  getShopItemById,
+  type RemnawaveInternalSquadBinding,
+} from "../bot/shop/catalog";
 import { RemnawaveClient, gbToBytes } from "./RemnawaveClient";
 import { SubscriptionService } from "./SubscriptionService";
 
@@ -17,6 +21,24 @@ function trafficStrategy(): "NO_RESET" | "DAY" | "WEEK" | "MONTH" {
 }
 
 /**
+ * Синтетический email для панели только если задан нормальный домен в REMNAWAVE_USER_EMAIL_DOMAIN.
+ * Раньше пустая строка в .env давала `u…@` без домена → 400 Invalid email format.
+ */
+function buildOptionalSyntheticEmail(telegramUserId: number): string | undefined {
+  const raw = process.env.REMNAWAVE_USER_EMAIL_DOMAIN;
+  if (raw === undefined) return undefined;
+  const domain = raw.trim().replace(/^@/, "");
+  if (!domain) return undefined;
+  const local = `u${telegramUserId}-${randomBytes(3).toString("hex")}`;
+  const full = `${local}@${domain}`;
+  // Remnawave валидирует как email; нужен хотя бы один разделитель в домене (user@a.b)
+  if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(full)) {
+    return undefined;
+  }
+  return full;
+}
+
+/**
  * Интеграция с панелью: Remnawave (REST API + Bearer), если задан REMNAWAVE_BASE_URL.
  * Иначе — локальная заглушка без сети (для разработки без панели).
  */
@@ -26,6 +48,11 @@ export class PanelApiService {
   /**
    * Для 3x-ui это был id инбаунда; у Remnawave не используется — возвращаем 1, чтобы не ломать проверки в purchaseHandlers.
    */
+  /** Пользователи создаются через Remnawave API (лимит трафика задаётся при createUser). */
+  usesRemnawavePanel(): boolean {
+    return useRemnawave();
+  }
+
   getInboundId(): number | null {
     if (useRemnawave()) {
       return 1;
@@ -39,10 +66,18 @@ export class PanelApiService {
   /**
    * Создаёт пользователя в Remnawave и возвращает ссылку подписки из ответа API.
    */
+  /**
+   * @param options.subscriptionRowId — id строки в БД (subscriptions.id); добавляется к username как `_s{id}` для уникальности.
+   */
   async createClientForSubscriptionPeriod(
     telegramUserId: number,
     durationDays: number,
-    options?: { initialTrafficGb?: number }
+    options?: {
+      initialTrafficGb?: number;
+      planId?: string;
+      telegramUsername?: string;
+      subscriptionRowId?: number;
+    }
   ): Promise<
     | { ok: true; clientId: string; email: string; subscriptionUrl: string }
     | { ok: false; error: string }
@@ -51,26 +86,60 @@ export class PanelApiService {
       return this.createClientStub(telegramUserId);
     }
 
-    const username = RemnawaveClient.makeUsername(telegramUserId);
+    const planId = options?.planId;
+    const isStandard = planId === "subscription_standard";
+    const catalogItem = planId ? getShopItemById(planId) : undefined;
+
     const exp = new Date();
     exp.setDate(exp.getDate() + durationDays);
     const expireAtIso = exp.toISOString();
     const initialGb = options?.initialTrafficGb ?? 0;
 
-    const email =
-      process.env.REMNAWAVE_USER_EMAIL_DOMAIN?.trim() !== undefined
-        ? `u${telegramUserId}-${randomBytes(3).toString("hex")}@${process.env.REMNAWAVE_USER_EMAIL_DOMAIN!.replace(/^@/, "")}`
-        : undefined;
+    const paidDate = new Date().toLocaleDateString("ru-RU");
+
+    const username =
+      options?.subscriptionRowId !== undefined
+        ? this.buildPanelUsername(
+            planId,
+            telegramUserId,
+            options.telegramUsername,
+            options.subscriptionRowId
+          )
+        : isStandard
+          ? RemnawaveClient.makeUsernameFromTelegram(telegramUserId, options?.telegramUsername)
+          : RemnawaveClient.makeUsername(telegramUserId);
+
+    const email = buildOptionalSyntheticEmail(telegramUserId);
 
     const createParams: Parameters<RemnawaveClient["createUser"]>[0] = {
       username,
       expireAtIso,
       telegramId: telegramUserId,
-      email,
       trafficLimitStrategy: trafficStrategy(),
     };
+    if (email) {
+      createParams.email = email;
+    }
     if (initialGb > 0) {
       createParams.trafficLimitBytes = gbToBytes(initialGb);
+    }
+
+    if (catalogItem?.hwidDeviceLimit !== undefined) {
+      createParams.hwidDeviceLimit = catalogItem.hwidDeviceLimit;
+    }
+
+    const descTpl = catalogItem?.remnawavePaidDescriptionTemplate?.trim();
+    if (descTpl) {
+      createParams.description = descTpl.replace(/\{date\}/g, paidDate);
+    }
+
+    const squadBindings = catalogItem?.remnawaveInternalSquads;
+    if (squadBindings?.length) {
+      const squads = await this.resolveInternalSquads(squadBindings);
+      if (!squads.ok) {
+        return { ok: false, error: squads.error };
+      }
+      createParams.activeInternalSquads = squads.uuids;
     }
 
     const created = await this.remnawave.createUser(createParams);
@@ -84,6 +153,76 @@ export class PanelApiService {
       email: created.user.email ?? `u${telegramUserId}@remnawave.bot`,
       subscriptionUrl: created.user.subscriptionUrl,
     };
+  }
+
+  /** Уникальный username в панели: суффикс `_s{subscriptionRowId}` привязан к строке в БД. */
+  private buildPanelUsername(
+    planId: string | undefined,
+    telegramUserId: number,
+    telegramUsername: string | undefined,
+    subscriptionRowId: number
+  ): string {
+    const suf = `_s${subscriptionRowId}`;
+    if (planId === "subscription_standard") {
+      if (telegramUsername) {
+        let s = telegramUsername.replace(/^@/, "").replace(/[^a-zA-Z0-9_-]/g, "").toLowerCase();
+        if (s.length < 3) {
+          s = `id${telegramUserId}`;
+        }
+        return `${s}${suf}`.slice(0, 36);
+      }
+      return `id${telegramUserId}${suf}`.slice(0, 36);
+    }
+    return `tg${telegramUserId}${suf}`.slice(0, 36);
+  }
+
+  private squadUuidFromBinding(b: RemnawaveInternalSquadBinding): string | undefined {
+    const primary = b.uuidEnvVar ? process.env[b.uuidEnvVar]?.trim() : undefined;
+    if (primary) return primary;
+    const alt = b.alternateUuidEnvVar ? process.env[b.alternateUuidEnvVar]?.trim() : undefined;
+    if (alt) return alt;
+    return undefined;
+  }
+
+  private squadNameFromBinding(b: RemnawaveInternalSquadBinding): string | undefined {
+    const n1 = b.nameEnvVar ? process.env[b.nameEnvVar]?.trim() : undefined;
+    if (n1) return n1;
+    const n2 = b.alternateNameEnvVar ? process.env[b.alternateNameEnvVar]?.trim() : undefined;
+    if (n2) return n2;
+    const fb = b.fallbackSquadName?.trim();
+    if (fb) return fb;
+    return undefined;
+  }
+
+  private async resolveInternalSquads(
+    bindings: RemnawaveInternalSquadBinding[]
+  ): Promise<{ ok: true; uuids: string[] } | { ok: false; error: string }> {
+    const uuids: string[] = [];
+    for (const b of bindings) {
+      const fromEnv = this.squadUuidFromBinding(b);
+      if (fromEnv) {
+        uuids.push(fromEnv);
+        continue;
+      }
+      const name = this.squadNameFromBinding(b);
+      if (!name) {
+        return {
+          ok: false,
+          error:
+            "Для подписки не задан internal squad: укажите UUID в .env (uuidEnvVar / alternateUuidEnvVar) или имя сквада (nameEnvVar / fallbackSquadName).",
+        };
+      }
+      const uuid = await this.remnawave.findInternalSquadUuidByName(name);
+      if (!uuid) {
+        return {
+          ok: false,
+          error:
+            `Не найден internal squad «${name}». Задайте UUID сквада в .env или проверьте имя в панели Remnawave.`,
+        };
+      }
+      uuids.push(uuid);
+    }
+    return { ok: true, uuids };
   }
 
   private createClientStub(

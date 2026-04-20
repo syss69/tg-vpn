@@ -58,5 +58,7 @@ export interface SessionData {
     itemId: string;
     /** Для докупки трафика — к какой подписке привязать */
     targetSubscriptionId?: string;
+    /** Username Telegram на момент подтверждения покупки */
+    telegramUsername?: string;
   };
 }

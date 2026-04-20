@@ -1,6 +1,7 @@
 import { BotContext } from "../bot";
 import { UserService } from "../../services/UserService";
 import { backToMenuKeyboard } from "../keyboards";
+import { formatSubscriptionUrlTelegramHtml } from "../subscriptionLinkHtml";
 
 const userService = new UserService();
 
@@ -39,7 +40,9 @@ export async function handleProfile(ctx: BotContext): Promise<void> {
         const status = isExpired ? "истекла" : "активна";
         const legacy = s as { subscriptionUrl?: string; accessUrl?: string };
         const subUrl = legacy.subscriptionUrl ?? legacy.accessUrl;
-        const urlLine = subUrl ? `\n      🔗 Подписка: <code>${subUrl}</code>` : "";
+        const urlLine = subUrl
+          ? `\n      🔗 Подписка:\n      ${formatSubscriptionUrlTelegramHtml(subUrl)}`
+          : "";
         return (
           `  ${i + 1}. <b>${s.planTitle}</b>\n` +
           `      🆔 Токен: <code>${s.panelClientUuid}</code>\n` +
