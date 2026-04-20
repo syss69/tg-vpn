@@ -71,7 +71,8 @@ async function purchaseSubscriptionTier(
 
   const panel = await panelApi.createClientForSubscriptionPeriod(
     userId,
-    SUBSCRIPTION_PERIOD_DAYS
+    SUBSCRIPTION_PERIOD_DAYS,
+    { initialTrafficGb }
   );
   if (!panel.ok) {
     return { success: false, details: panel.error };
