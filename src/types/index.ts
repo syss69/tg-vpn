@@ -1,20 +1,25 @@
 /**
- * Интерфейс для API-ключа пользователя
+ * Активная подписка пользователя (период + доступ с панели).
  */
-export interface ApiKey {
-  /** Уникальный идентификатор ключа */
+export interface Subscription {
   id: string;
-  /** Значение ключа */
-  value: string;
-  /** Тариф ключа в месяцах (1, 3, 12) */
-  planMonths?: number;
-  /** Дата окончания срока действия ключа (ISO строка) */
-  expiresAt?: string;
-  /** Суммарно купленный трафик для ключа (GB) */
-  totalTrafficGb?: number;
-  /** Уже израсходованный трафик для ключа (GB) */
-  usedTrafficGb?: number;
-  /** Дата покупки (ISO строка) */
+  /** id позиции из каталога (например subscription_compact) */
+  planId: string;
+  /** Заголовок из каталога на момент покупки */
+  planTitle: string;
+  /** Внешний id клиента / токен подписки в панели */
+  panelClientUuid: string;
+  /** Email клиента в панели (если используется API) */
+  panelEmail: string;
+  /** Ссылка на подписку для импорта в клиент (например …/api/sub/{token}) */
+  subscriptionUrl: string;
+  /** Дата окончания периода (ISO) */
+  expiresAt: string;
+  /** Суммарный лимит трафика ускорения (GB); 0 = без отдельного лимита в учёте */
+  totalTrafficGb: number;
+  /** Израсходовано (GB) */
+  usedTrafficGb: number;
+  /** Дата покупки (ISO) */
   purchasedAt: string;
 }
 
@@ -26,21 +31,18 @@ export interface User {
   id: number;
   /** Username в Telegram (может отсутствовать) */
   username?: string;
+  /** Имя из Telegram (кэш при первом /start) */
+  firstName?: string;
+  /** Код языка из Telegram (кэш при первом /start) */
+  languageCode?: string;
   /** Баланс пользователя (в условных единицах) */
   balance: number;
-  /** Список купленных API-ключей */
-  purchasedKeys: ApiKey[];
-  /** Хранилище купленного трафика (для аудита/перепривязки) */
+  /** Подписки (JSON в колонке purchased_keys до переименования в БД) */
+  subscriptions: Subscription[];
+  /** Хранилище купленного трафика (для аудита) */
   trafficWalletGb?: number;
   /** Дата регистрации */
   createdAt: string;
-}
-
-/**
- * Структура локальной JSON-базы данных
- */
-export interface Database {
-  users: User[];
 }
 
 /**
@@ -52,6 +54,7 @@ export interface SessionData {
   /** Отложенная покупка, ожидающая подтверждения */
   pendingPurchase?: {
     itemId: string;
-    targetKeyId?: string;
+    /** Для докупки трафика — к какой подписке привязать */
+    targetSubscriptionId?: string;
   };
 }

@@ -1,5 +1,5 @@
 import { InlineKeyboard } from "grammy";
-import { ApiKey } from "../../types";
+import { Subscription } from "../../types";
 import { SHOP_ITEMS } from "../shop/catalog";
 
 /**
@@ -9,7 +9,9 @@ export const mainMenuKeyboard = new InlineKeyboard()
   .text("👤 Профиль", "profile")
   .text("🛒 Магазин", "shop")
   .row()
-  .text("💳 Пополнить баланс", "top_up");
+  .text("💳 Пополнить баланс", "top_up")
+  .row()
+  .text("📱 Скачать приложение", "download_app");
 
 /**
  * Клавиатура для экрана «недостаточно средств»
@@ -54,15 +56,21 @@ export function createShopKeyboard(): InlineKeyboard {
 }
 
 /**
- * Клавиатура выбора ключа для привязки купленного трафика.
+ * Клавиатура выбора подписки для привязки купленного трафика.
  */
-export function createTrafficKeySelectionKeyboard(itemId: string, keys: ApiKey[]): InlineKeyboard {
+export function createTrafficSubscriptionSelectionKeyboard(
+  itemId: string,
+  subscriptions: Subscription[]
+): InlineKeyboard {
   const keyboard = new InlineKeyboard();
 
-  keys.forEach((key, index) => {
-    const shortValue = key.value.slice(0, 18);
-    keyboard.text(`🔑 ${index + 1}: ${shortValue}...`, `apply_traffic:${itemId}:${key.id}`);
-    if (index < keys.length - 1) {
+  subscriptions.forEach((sub, index) => {
+    const shortTitle = sub.planTitle.slice(0, 22);
+    keyboard.text(
+      `📋 ${index + 1}: ${shortTitle}${sub.planTitle.length > 22 ? "…" : ""}`,
+      `apply_traffic:${itemId}:${sub.id}`
+    );
+    if (index < subscriptions.length - 1) {
       keyboard.row();
     }
   });
