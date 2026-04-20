@@ -51,6 +51,8 @@ export interface User {
 export interface SessionData {
   /** Текущее действие пользователя (ожидание ввода суммы и т.д.) */
   awaitingTopUpAmount: boolean;
+  /** Инвойс Crypto Pay, ожидающий оплаты/проверки */
+  pendingTopUpInvoiceId?: number;
   /** Отложенная покупка, ожидающая подтверждения */
   pendingPurchase?: {
     itemId: string;
