@@ -4,9 +4,21 @@ import { backToMenuKeyboard } from "../keyboards";
 
 const userService = new UserService();
 
+function isUnlimitedAccelerationPlan(planId: string): boolean {
+  return planId === "subscription_standard" || planId === "subscription_premium";
+}
+
+function formatTrafficLine(planId: string, total: number, used: number): string {
+  const remaining = Math.max(total - used, 0);
+  if (isUnlimitedAccelerationPlan(planId) && total === 0 && used === 0) {
+    return `      📊 Ускорение: безлимит (по тарифу)`;
+  }
+  return `      📊 Ускорение: ${remaining} GB свободно из ${total} GB`;
+}
+
 /**
  * Обработчик кнопки «Профиль».
- * Отображает Telegram ID, баланс и список купленных ключей.
+ * Отображает Telegram ID, баланс и подписки.
  */
 export async function handleProfile(ctx: BotContext): Promise<void> {
   await ctx.answerCallbackQuery();
@@ -14,39 +26,31 @@ export async function handleProfile(ctx: BotContext): Promise<void> {
   const userId = ctx.from?.id;
   if (!userId) return;
 
-  // Получаем данные пользователя из сервисного слоя
   const user = await userService.getOrCreate(userId, ctx.from?.username);
 
-  // Формируем список ключей
-  let keysSection: string;
-  if (user.purchasedKeys.length === 0) {
-    keysSection = "📭 У вас пока нет купленных ключей.";
+  let subsSection: string;
+  if (user.subscriptions.length === 0) {
+    subsSection = "📭 У вас пока нет оформленных подписок.";
   } else {
-    const keyLines = user.purchasedKeys
-      .map(
-        (k, i) => {
-          const total = k.totalTrafficGb ?? 0;
-          const used = k.usedTrafficGb ?? 0;
-          const remaining = Math.max(total - used, 0);
-          const isExpired =
-            k.expiresAt !== undefined && new Date(k.expiresAt).getTime() <= Date.now();
-          const expiryLabel = k.expiresAt
-            ? new Date(k.expiresAt).toLocaleDateString("ru-RU")
-            : "без срока";
-          const status = isExpired ? "сгорел" : "активен";
-          const urlLine = k.accessUrl ? `\n      🔗 URL: <code>${k.accessUrl}</code>` : "";
-          return (
-            `  ${i + 1}. <code>${k.value}</code>\n` +
-            (k.panelClientUuid ? `      🆔 UUID: <code>${k.panelClientUuid}</code>\n` : "") +
-            `      ⏱ Статус: ${status}, до ${expiryLabel}\n` +
-            `      📊 Трафик: ${remaining} GB из ${total} GB\n` +
-            `      📅 ${new Date(k.purchasedAt).toLocaleDateString("ru-RU")}` +
-            urlLine
-          );
-        }
-      )
+    const lines = user.subscriptions
+      .map((s, i) => {
+        const isExpired = userService.isSubscriptionExpired(s);
+        const expiryLabel = new Date(s.expiresAt).toLocaleDateString("ru-RU");
+        const status = isExpired ? "истекла" : "активна";
+        const legacy = s as { subscriptionUrl?: string; accessUrl?: string };
+        const subUrl = legacy.subscriptionUrl ?? legacy.accessUrl;
+        const urlLine = subUrl ? `\n      🔗 Подписка: <code>${subUrl}</code>` : "";
+        return (
+          `  ${i + 1}. <b>${s.planTitle}</b>\n` +
+          `      🆔 Токен: <code>${s.panelClientUuid}</code>\n` +
+          `      ⏱ Статус: ${status}, до ${expiryLabel}\n` +
+          formatTrafficLine(s.planId, s.totalTrafficGb ?? 0, s.usedTrafficGb ?? 0) +
+          `\n      📅 Оформлена: ${new Date(s.purchasedAt).toLocaleDateString("ru-RU")}` +
+          urlLine
+        );
+      })
       .join("\n");
-    keysSection = `🔑 <b>Ваши ключи (${user.purchasedKeys.length}):</b>\n${keyLines}`;
+    subsSection = `📋 <b>Ваши подписки (${user.subscriptions.length}):</b>\n${lines}`;
   }
 
   const profileText =
@@ -56,7 +60,7 @@ export async function handleProfile(ctx: BotContext): Promise<void> {
     `💰 Баланс: <b>${user.balance} ед.</b>\n` +
     `🗂 Куплено трафика всего: <b>${user.trafficWalletGb ?? 0} GB</b>\n` +
     `📅 Дата регистрации: ${new Date(user.createdAt).toLocaleDateString("ru-RU")}\n\n` +
-    keysSection;
+    subsSection;
 
   await ctx.editMessageText(profileText, {
     parse_mode: "HTML",

@@ -5,7 +5,7 @@ import { SessionData } from "../types";
 import { handleStart, handleBackToMenu } from "./handlers/start";
 import { handleProfile } from "./handlers/profile";
 import {
-  handleApplyTrafficToKey,
+  handleApplyTrafficToSubscription,
   handleBuyItem,
   handleCancelPurchase,
   handleConfirmPurchase,
@@ -13,9 +13,6 @@ import {
   handleTopUp,
   handleTopUpAmount,
 } from "./handlers/shop";
-import { handleReduceTrafficTest } from "./handlers/reduceTrafficTest";
-import { handleRebindTrafficTest } from "./handlers/rebindTrafficTest";
-import { handleDeleteKeyTest } from "./handlers/deleteKeyTest";
 
 /**
  * Тип контекста бота с поддержкой сессий.
@@ -44,15 +41,12 @@ export function createBot(token: string): Bot<BotContext> {
 
   // --- Команды ---
   bot.command("start", handleStart);
-  bot.command("reduce", handleReduceTrafficTest);
-  bot.command("rebind", handleRebindTrafficTest);
-  bot.command("deletekey", handleDeleteKeyTest);
 
   // --- Callback-кнопки ---
   bot.callbackQuery("profile", handleProfile);
   bot.callbackQuery("shop", handleShop);
   bot.callbackQuery(/^buy_item:/, handleBuyItem);
-  bot.callbackQuery(/^apply_traffic:/, handleApplyTrafficToKey);
+  bot.callbackQuery(/^apply_traffic:/, handleApplyTrafficToSubscription);
   bot.callbackQuery("confirm_purchase", handleConfirmPurchase);
   bot.callbackQuery("cancel_purchase", handleCancelPurchase);
   bot.callbackQuery("top_up", handleTopUp);

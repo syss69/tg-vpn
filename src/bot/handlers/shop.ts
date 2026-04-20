@@ -2,7 +2,7 @@ import { BotContext } from "../bot";
 import { UserService } from "../../services/UserService";
 import {
   createShopKeyboard,
-  createTrafficKeySelectionKeyboard,
+  createTrafficSubscriptionSelectionKeyboard,
   confirmPurchaseKeyboard,
   insufficientFundsKeyboard,
   afterActionKeyboard,
@@ -13,7 +13,7 @@ import { executePurchase } from "../shop/purchaseHandlers";
 
 const userService = new UserService();
 
-function parseApplyTrafficCallback(data: string): { itemId: string; keyId: string } | null {
+function parseApplyTrafficCallback(data: string): { itemId: string; subscriptionId: string } | null {
   const prefix = "apply_traffic:";
   if (!data.startsWith(prefix)) return null;
 
@@ -22,16 +22,16 @@ function parseApplyTrafficCallback(data: string): { itemId: string; keyId: strin
   if (delimiterIndex === -1) return null;
 
   const itemId = payload.slice(0, delimiterIndex);
-  const keyId = payload.slice(delimiterIndex + 1);
-  if (!itemId || !keyId) return null;
+  const subscriptionId = payload.slice(delimiterIndex + 1);
+  if (!itemId || !subscriptionId) return null;
 
-  return { itemId, keyId };
+  return { itemId, subscriptionId };
 }
 
 async function showPurchaseConfirmation(
   ctx: BotContext,
   itemId: string,
-  targetKeyId?: string
+  targetSubscriptionId?: string
 ): Promise<void> {
   const userId = ctx.from?.id;
   if (!userId) return;
@@ -47,16 +47,20 @@ async function showPurchaseConfirmation(
   const user = await userService.getOrCreate(userId, ctx.from?.username);
   const balance = user.balance;
   const deficit = Math.max(item.price - balance, 0);
-  const keyLine = targetKeyId
-    ? `🔑 Выбранный ключ: <code>${user.purchasedKeys.find((k) => k.id === targetKeyId)?.value ?? "не найден"}</code>\n`
+  const subLine = targetSubscriptionId
+    ? (() => {
+        const s = user.subscriptions.find((x) => x.id === targetSubscriptionId);
+        const label = s?.planTitle ?? "подписка";
+        return `📋 Выбрана подписка: <b>${label}</b>\n`;
+      })()
     : "";
 
-  ctx.session.pendingPurchase = { itemId, targetKeyId };
+  ctx.session.pendingPurchase = { itemId, targetSubscriptionId };
 
   await ctx.editMessageText(
     `🧾 <b>Подтверждение покупки</b>\n\n` +
       `🛍 Товар: <b>${item.title}</b>\n` +
-      keyLine +
+      subLine +
       `💳 Стоимость: <b>${item.price} ед.</b>\n` +
       `💰 Ваш баланс: <b>${balance} ед.</b>\n` +
       `📉 Не хватает: <b>${deficit} ед.</b>\n\n` +
@@ -99,11 +103,11 @@ async function executePendingPurchase(ctx: BotContext): Promise<void> {
     return;
   }
 
-  if (pending.targetKeyId) {
-    const selectedKey = user.purchasedKeys.find((k) => k.id === pending.targetKeyId);
-    if (!selectedKey || userService.isKeyExpired(selectedKey)) {
+  if (pending.targetSubscriptionId) {
+    const selected = user.subscriptions.find((s) => s.id === pending.targetSubscriptionId);
+    if (!selected || userService.isSubscriptionExpired(selected)) {
       ctx.session.pendingPurchase = undefined;
-      await ctx.editMessageText("⚠️ Выбранный ключ недоступен. Повторите покупку трафика.", {
+      await ctx.editMessageText("⚠️ Выбранная подписка недоступна. Повторите покупку трафика.", {
         reply_markup: createShopKeyboard(),
       });
       return;
@@ -120,7 +124,7 @@ async function executePendingPurchase(ctx: BotContext): Promise<void> {
   }
 
   const purchaseResult = await executePurchase(item.id, userId, {
-    targetKeyId: pending.targetKeyId,
+    targetSubscriptionId: pending.targetSubscriptionId,
   });
   if (!purchaseResult.success) {
     await userService.topUpBalance(userId, item.price);
@@ -133,12 +137,12 @@ async function executePendingPurchase(ctx: BotContext): Promise<void> {
 
   const updatedUser = await userService.findById(userId);
   let extraLine = "";
-  if (pending.targetKeyId) {
-    const updatedKey = updatedUser?.purchasedKeys.find((k) => k.id === pending.targetKeyId);
-    const total = updatedKey?.totalTrafficGb ?? 0;
-    const used = updatedKey?.usedTrafficGb ?? 0;
+  if (pending.targetSubscriptionId) {
+    const updatedSub = updatedUser?.subscriptions.find((s) => s.id === pending.targetSubscriptionId);
+    const total = updatedSub?.totalTrafficGb ?? 0;
+    const used = updatedSub?.usedTrafficGb ?? 0;
     const remaining = Math.max(total - used, 0);
-    extraLine = `📊 Остаток трафика по ключу: <b>${remaining} GB</b>\n`;
+    extraLine = `📊 Остаток трафика по подписке: <b>${remaining} GB</b>\n`;
   }
 
   ctx.session.pendingPurchase = undefined;
@@ -205,11 +209,11 @@ export async function handleBuyItem(ctx: BotContext): Promise<void> {
 
   const trafficMatch = item.id.match(/^white_list_(\d+)$/);
   if (trafficMatch) {
-    const activeKeys = await userService.getActiveKeys(userId);
-    if (activeKeys.length === 0) {
+    const activeSubs = await userService.getActiveSubscriptions(userId);
+    if (activeSubs.length === 0) {
       await ctx.editMessageText(
-        `⚠️ Нет активных ключей для привязки трафика.\n\n` +
-          `Купите новый ключ, затем выберите пакет трафика.`,
+        `⚠️ Нет активных подписок для привязки трафика.\n\n` +
+          `Оформите подписку, затем выберите пакет трафика.`,
         {
           reply_markup: createShopKeyboard(),
         }
@@ -219,10 +223,10 @@ export async function handleBuyItem(ctx: BotContext): Promise<void> {
 
     await ctx.editMessageText(
       `🔗 <b>Пакет трафика: ${trafficMatch[1]} GB</b>\n\n` +
-        `Выберите ключ, к которому нужно привязать трафик:`,
+        `Выберите подписку, к которой нужно привязать трафик:`,
       {
         parse_mode: "HTML",
-        reply_markup: createTrafficKeySelectionKeyboard(item.id, activeKeys),
+        reply_markup: createTrafficSubscriptionSelectionKeyboard(item.id, activeSubs),
       }
     );
     return;
@@ -232,9 +236,9 @@ export async function handleBuyItem(ctx: BotContext): Promise<void> {
 }
 
 /**
- * Обработчик подтверждения покупки трафика для выбранного ключа.
+ * Обработчик подтверждения покупки трафика для выбранной подписки.
  */
-export async function handleApplyTrafficToKey(ctx: BotContext): Promise<void> {
+export async function handleApplyTrafficToSubscription(ctx: BotContext): Promise<void> {
   await ctx.answerCallbackQuery();
 
   const userId = ctx.from?.id;
@@ -255,21 +259,21 @@ export async function handleApplyTrafficToKey(ctx: BotContext): Promise<void> {
   }
 
   const user = await userService.getOrCreate(userId, ctx.from?.username);
-  const selectedKey = user.purchasedKeys.find((k) => k.id === parsed.keyId);
-  if (!selectedKey) {
-    await ctx.editMessageText("⚠️ Выбранный ключ не найден.", {
+  const selected = user.subscriptions.find((s) => s.id === parsed.subscriptionId);
+  if (!selected) {
+    await ctx.editMessageText("⚠️ Выбранная подписка не найдена.", {
       reply_markup: backToMenuKeyboard,
     });
     return;
   }
-  if (userService.isKeyExpired(selectedKey)) {
-    await ctx.editMessageText("⚠️ Этот ключ уже сгорел. Выберите активный ключ.", {
+  if (userService.isSubscriptionExpired(selected)) {
+    await ctx.editMessageText("⚠️ Срок этой подписки истёк. Выберите активную подписку.", {
       reply_markup: createShopKeyboard(),
     });
     return;
   }
 
-  await showPurchaseConfirmation(ctx, item.id, selectedKey.id);
+  await showPurchaseConfirmation(ctx, item.id, selected.id);
 }
 
 export async function handleConfirmPurchase(ctx: BotContext): Promise<void> {
