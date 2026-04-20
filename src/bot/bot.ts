@@ -12,6 +12,7 @@ import {
   handleConfirmPurchase,
   handleShop,
   handleTopUp,
+  handleCheckTopUp,
   handleTopUpAmount,
 } from "./handlers/shop";
 
@@ -51,6 +52,7 @@ export function createBot(token: string): Bot<BotContext> {
   bot.callbackQuery("confirm_purchase", handleConfirmPurchase);
   bot.callbackQuery("cancel_purchase", handleCancelPurchase);
   bot.callbackQuery("top_up", handleTopUp);
+  bot.callbackQuery(/^check_topup:/, handleCheckTopUp);
   bot.callbackQuery("download_app", handleDownloadApp);
   bot.callbackQuery("back_to_menu", handleBackToMenu);
 

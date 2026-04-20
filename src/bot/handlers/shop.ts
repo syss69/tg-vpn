@@ -1,5 +1,7 @@
 import { BotContext } from "../bot";
 import { UserService } from "../../services/UserService";
+import { CryptoPayService } from "../../services/CryptoPayService";
+import { CryptoPayInvoiceStore } from "../../services/CryptoPayInvoiceStore";
 import {
   createShopKeyboard,
   createTrafficSubscriptionSelectionKeyboard,
@@ -10,8 +12,79 @@ import {
 } from "../keyboards";
 import { getShopItemById, SHOP_ITEMS } from "../shop/catalog";
 import { executePurchase } from "../shop/purchaseHandlers";
+import { InlineKeyboard } from "grammy";
 
 const userService = new UserService();
+const cryptoPay = new CryptoPayService();
+const invoiceStore = new CryptoPayInvoiceStore();
+
+function getAssetAmountPrecision(asset: string): number {
+  const a = asset.toUpperCase();
+  if (a === "USDT" || a === "USDC" || a === "BUSD") return 2;
+  if (a === "TON") return 4;
+  if (a === "BTC" || a === "ETH") return 6;
+  return 6;
+}
+
+function roundTo(value: number, digits: number): number {
+  const k = 10 ** digits;
+  return Math.round(value * k) / k;
+}
+
+async function convertRubToAssetAmount(params: {
+  rubAmount: number;
+  asset: string;
+}): Promise<{ amountAsset: string; usedRateRubPerAsset?: number }> {
+  const asset = params.asset.toUpperCase();
+
+  // 1) Try live rate from Crypto Pay (best effort).
+  try {
+    const rates = await cryptoPay.getExchangeRates();
+
+    const direct = rates.find(
+      (r) => r.source?.toUpperCase() === asset && r.target?.toUpperCase() === "RUB"
+    );
+    if (direct?.rate) {
+      const rubPerAsset = parseFloat(direct.rate);
+      if (Number.isFinite(rubPerAsset) && rubPerAsset > 0) {
+        const precision = getAssetAmountPrecision(asset);
+        const amountAssetNum = roundTo(params.rubAmount / rubPerAsset, precision);
+        return { amountAsset: amountAssetNum.toFixed(precision), usedRateRubPerAsset: rubPerAsset };
+      }
+    }
+
+    const inverse = rates.find(
+      (r) => r.source?.toUpperCase() === "RUB" && r.target?.toUpperCase() === asset
+    );
+    if (inverse?.rate) {
+      const assetPerRub = parseFloat(inverse.rate);
+      if (Number.isFinite(assetPerRub) && assetPerRub > 0) {
+        const precision = getAssetAmountPrecision(asset);
+        const amountAssetNum = roundTo(params.rubAmount * assetPerRub, precision);
+        // Convert to rub-per-asset for display if possible
+        const rubPerAsset = 1 / assetPerRub;
+        return { amountAsset: amountAssetNum.toFixed(precision), usedRateRubPerAsset: rubPerAsset };
+      }
+    }
+  } catch {
+    // ignore and fallback to env rate below
+  }
+
+  // 2) Fallback rate from env: RUB per 1 ASSET (e.g. RUB per USDT)
+  const fallbackRaw =
+    process.env.CRYPTOPAY_RUB_PER_ASSET ??
+    (asset === "USDT" ? process.env.CRYPTOPAY_RUB_PER_USDT : undefined);
+  const fallback = fallbackRaw ? parseFloat(fallbackRaw) : NaN;
+  if (!Number.isFinite(fallback) || fallback <= 0) {
+    throw new Error(
+      `Не удалось получить курс для ${asset}↔RUB. Задайте CRYPTOPAY_RUB_PER_ASSET (или CRYPTOPAY_RUB_PER_USDT) в .env.`
+    );
+  }
+
+  const precision = getAssetAmountPrecision(asset);
+  const amountAssetNum = roundTo(params.rubAmount / fallback, precision);
+  return { amountAsset: amountAssetNum.toFixed(precision), usedRateRubPerAsset: fallback };
+}
 
 function parseApplyTrafficCallback(data: string): { itemId: string; subscriptionId: string } | null {
   const prefix = "apply_traffic:";
@@ -335,22 +408,151 @@ export async function handleTopUpAmount(ctx: BotContext): Promise<void> {
 
   // Сбрасываем флаг ожидания в сессии
   ctx.session.awaitingTopUpAmount = false;
+  ctx.session.pendingTopUpInvoiceId = undefined;
 
-  // Пополняем баланс через сервисный слой
-  const updatedUser = await userService.topUpBalance(userId, amount);
-
-  if (!updatedUser) {
-    await ctx.reply("⚠️ Ошибка при пополнении. Попробуйте снова.");
+  const asset = process.env.CRYPTOPAY_ASSET ?? "USDT";
+  let amountAsset: string;
+  let usedRateRubPerAsset: number | undefined;
+  try {
+    const converted = await convertRubToAssetAmount({ rubAmount: amount, asset });
+    amountAsset = converted.amountAsset;
+    usedRateRubPerAsset = converted.usedRateRubPerAsset;
+  } catch (e) {
+    const msg = e instanceof Error ? e.message : String(e);
+    await ctx.reply(`⚠️ Не удалось рассчитать сумму к оплате.\n\n${msg.slice(0, 300)}`, {
+      reply_markup: afterActionKeyboard,
+    });
     return;
   }
 
+  let invoice;
+  try {
+    invoice = await cryptoPay.createInvoice({
+      asset,
+      amount: amountAsset,
+      description: `Пополнение баланса на ${amount} ₽`,
+      payload: JSON.stringify({ tgId: userId, amountUnits: amount }),
+      expiresInSeconds: 60 * 60,
+    });
+  } catch (e) {
+    const msg = e instanceof Error ? e.message : String(e);
+    await ctx.reply(`⚠️ Не удалось создать счёт на оплату.\n\n${msg.slice(0, 300)}`, {
+      reply_markup: afterActionKeyboard,
+    });
+    return;
+  }
+
+  await invoiceStore.ensureInvoice({
+    invoiceId: invoice.invoice_id,
+    tgId: userId,
+    amountUnits: amount,
+    asset,
+    amountAsset,
+    status: invoice.status ?? "unknown",
+  });
+
+  ctx.session.pendingTopUpInvoiceId = invoice.invoice_id;
+
+  const payUrl = invoice.pay_url;
+  const keyboard = new InlineKeyboard();
+  if (payUrl) {
+    keyboard.url("💳 Оплатить", payUrl).row();
+  }
+  keyboard.text("✅ Проверить оплату", `check_topup:${invoice.invoice_id}`).row();
+  keyboard.text("⬅️ Главное меню", "back_to_menu");
+
   await ctx.reply(
-    `✅ <b>Баланс успешно пополнен!</b>\n\n` +
-      `💳 Сумма пополнения: <b>+${amount} ед.</b>\n` +
-      `💰 Текущий баланс: <b>${updatedUser.balance} ед.</b>`,
+    `🧾 <b>Счёт на оплату создан</b>\n\n` +
+      `💳 Сумма пополнения: <b>${amount} ₽</b>\n` +
+      `🪙 К оплате в Crypto Bot: <b>${amountAsset} ${asset}</b>\n\n` +
+      (usedRateRubPerAsset
+        ? `Курс: ~ <b>${usedRateRubPerAsset.toFixed(2)} ₽</b> за 1 ${asset}\n\n`
+        : "") +
+      `Нажмите «Оплатить», затем «Проверить оплату».`,
     {
       parse_mode: "HTML",
-      reply_markup: afterActionKeyboard,
+      reply_markup: keyboard,
+    }
+  );
+}
+
+export async function handleCheckTopUp(ctx: BotContext): Promise<void> {
+  await ctx.answerCallbackQuery();
+  const userId = ctx.from?.id;
+  if (!userId) return;
+
+  const data = ctx.callbackQuery?.data ?? "";
+  const prefix = "check_topup:";
+  if (!data.startsWith(prefix)) return;
+
+  const invoiceId = parseInt(data.slice(prefix.length), 10);
+  if (!invoiceId || Number.isNaN(invoiceId)) {
+    await ctx.editMessageText("⚠️ Некорректный идентификатор счёта.", {
+      reply_markup: backToMenuKeyboard,
+    });
+    return;
+  }
+
+  let invoice;
+  try {
+    invoice = await cryptoPay.getInvoiceById(invoiceId);
+  } catch (e) {
+    const msg = e instanceof Error ? e.message : String(e);
+    await ctx.editMessageText(`⚠️ Не удалось проверить оплату.\n\n${msg.slice(0, 300)}`, {
+      reply_markup: backToMenuKeyboard,
+    });
+    return;
+  }
+
+  if (!invoice) {
+    await ctx.editMessageText("⚠️ Счёт не найден в Crypto Bot.", {
+      reply_markup: backToMenuKeyboard,
+    });
+    return;
+  }
+
+  const status = invoice.status ?? "unknown";
+  if (status === "paid") {
+    await invoiceStore.markStatus({ invoiceId, status: "paid" });
+    const credited = await invoiceStore.tryCreditInvoice({ invoiceId, tgId: userId });
+    if (!credited.ok) {
+      await ctx.editMessageText(`⚠️ Оплата найдена, но зачислить не удалось: ${credited.error}`, {
+        reply_markup: backToMenuKeyboard,
+      });
+      return;
+    }
+
+    const updatedUser = await userService.findById(userId);
+    const already = credited.alreadyCredited;
+    await ctx.editMessageText(
+      (already ? `✅ <b>Платёж уже был учтён</b>\n\n` : `✅ <b>Оплата подтверждена</b>\n\n`) +
+        `💳 Зачислено: <b>+${credited.amountUnits} ед.</b>\n` +
+        `💰 Баланс: <b>${updatedUser?.balance ?? "—"} ед.</b>`,
+      {
+        parse_mode: "HTML",
+        reply_markup: afterActionKeyboard,
+      }
+    );
+    return;
+  }
+
+  await invoiceStore.markStatus({
+    invoiceId,
+    status: status === "active" || status === "expired" ? status : "unknown",
+  });
+
+  const human =
+    status === "active" ? "ожидает оплату" : status === "expired" ? "истёк" : "неизвестен";
+  await ctx.editMessageText(
+    `⏳ <b>Платёж пока не подтверждён</b>\n\n` +
+      `Статус счёта: <b>${human}</b>\n\n` +
+      `Если вы уже оплатили — подождите минуту и нажмите «Проверить оплату» ещё раз.`,
+    {
+      parse_mode: "HTML",
+      reply_markup: new InlineKeyboard()
+        .text("✅ Проверить оплату", `check_topup:${invoiceId}`)
+        .row()
+        .text("⬅️ Главное меню", "back_to_menu"),
     }
   );
 }
