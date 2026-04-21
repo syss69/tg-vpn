@@ -6,7 +6,11 @@ import { formatSubscriptionUrlTelegramHtml } from "../subscriptionLinkHtml";
 const userService = new UserService();
 
 function isUnlimitedAccelerationPlan(planId: string): boolean {
-  return planId === "subscription_standard" || planId === "subscription_premium";
+  return (
+    planId === "subscription_standard" ||
+    planId === "subscription_premium" ||
+    planId === "subscription_family"
+  );
 }
 
 function formatTrafficLine(planId: string, total: number, used: number): string {

@@ -5,6 +5,7 @@ import { SessionData } from "../types";
 import { handleStart, handleBackToMenu } from "./handlers/start";
 import { handleProfile } from "./handlers/profile";
 import { handleDownloadApp } from "./handlers/downloadApp";
+import { handleEnterPromo, handlePromo, handlePromoText } from "./handlers/promo";
 import {
   handleApplyTrafficToSubscription,
   handleBuyItem,
@@ -37,6 +38,7 @@ export function createBot(token: string): Bot<BotContext> {
     session({
       initial: (): SessionData => ({
         awaitingTopUpAmount: false,
+        awaitingPromoCode: false,
         pendingPurchase: undefined,
       }),
     })
@@ -44,6 +46,7 @@ export function createBot(token: string): Bot<BotContext> {
 
   // --- Команды ---
   bot.command("start", handleStart);
+  bot.command("promo", handlePromo);
 
   // --- Callback-кнопки ---
   bot.callbackQuery("profile", handleProfile);
@@ -54,6 +57,7 @@ export function createBot(token: string): Bot<BotContext> {
   bot.callbackQuery("confirm_purchase", handleConfirmPurchase);
   bot.callbackQuery("cancel_purchase", handleCancelPurchase);
   bot.callbackQuery("top_up", handleTopUp);
+  bot.callbackQuery("enter_promo", handleEnterPromo);
   bot.callbackQuery(/^check_topup:/, handleCheckTopUp);
   bot.callbackQuery("download_app", handleDownloadApp);
   bot.callbackQuery("back_to_menu", handleBackToMenu);
@@ -61,6 +65,10 @@ export function createBot(token: string): Bot<BotContext> {
   // --- Обработка текстовых сообщений ---
   // Перехватываем текст только если пользователь находится в режиме ввода суммы
   bot.on("message:text", async (ctx) => {
+    if (ctx.session.awaitingPromoCode) {
+      await handlePromoText(ctx);
+      return;
+    }
     if (ctx.session.awaitingTopUpAmount) {
       await handleTopUpAmount(ctx);
     }

@@ -147,11 +147,12 @@ export class UserService {
     username?: string;
     firstName?: string;
     languageCode?: string;
-  }): Promise<void> {
-    await this.pool.query(
+  }): Promise<{ isNew: boolean }> {
+    const r = await this.pool.query<{ id: number }>(
       `INSERT INTO users (tg_id, username, first_name, language_code)
        VALUES ($1, $2, $3, $4)
-       ON CONFLICT (tg_id) DO NOTHING`,
+       ON CONFLICT (tg_id) DO NOTHING
+       RETURNING id`,
       [
         params.tgId,
         params.username ?? null,
@@ -159,6 +160,7 @@ export class UserService {
         params.languageCode ?? null,
       ]
     );
+    return { isNew: r.rows.length > 0 };
   }
 
   async topUpBalance(userId: number, amount: number): Promise<User | null> {

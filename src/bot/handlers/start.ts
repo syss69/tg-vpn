@@ -1,8 +1,10 @@
 import { BotContext } from "../bot";
 import { UserService } from "../../services/UserService";
+import { PromoService } from "../../services/PromoService";
 import { mainMenuKeyboard } from "../keyboards";
 
 const userService = new UserService();
+const promoService = new PromoService();
 
 function buildMainMenuText(firstName: string): string {
   return (
@@ -33,7 +35,7 @@ export async function handleStart(ctx: BotContext): Promise<void> {
 
   if (!userId) return;
 
-  await userService.ensureUserOnBotStart({
+  const { isNew } = await userService.ensureUserOnBotStart({
     tgId: userId,
     username,
     firstName: ctx.from?.first_name,
@@ -49,6 +51,16 @@ export async function handleStart(ctx: BotContext): Promise<void> {
       reply_markup: mainMenuKeyboard,
     }
   );
+
+  if (isNew) {
+    const promo = await promoService.grantNewUserTrial({
+      tgId: userId,
+      telegramUsername: username,
+    });
+    if (promo.ok) {
+      await ctx.reply(promo.message, { parse_mode: "HTML" });
+    }
+  }
 }
 
 /**
@@ -56,6 +68,10 @@ export async function handleStart(ctx: BotContext): Promise<void> {
  */
 export async function handleBackToMenu(ctx: BotContext): Promise<void> {
   await ctx.answerCallbackQuery();
+  ctx.session.awaitingTopUpAmount = false;
+  ctx.session.awaitingPromoCode = false;
+  ctx.session.promoPrompt = undefined;
+  ctx.session.pendingPurchase = undefined;
   const firstName = ctx.from?.first_name ?? "друг";
   await ctx.editMessageText(
     buildMainMenuText(firstName),

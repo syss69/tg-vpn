@@ -123,6 +123,8 @@ const purchaseHandlers: Record<string, PurchaseHandler> = {
     }),
   subscription_premium: async (userId) =>
     purchaseSubscriptionTier(userId, "subscription_premium", 0),
+  subscription_family: async (userId) =>
+    purchaseSubscriptionTier(userId, "subscription_family", 0),
 };
 
 export async function executePurchase(

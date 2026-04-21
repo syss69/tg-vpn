@@ -54,8 +54,8 @@ export const SHOP_ITEMS: ShopItem[] = [
     id: "subscription_compact",
     title: "Подписка Компакт на 4 недели",
     description:
-      "Подписка Компакт даёт безлимитный доступ к 5 серверам в различных локациях, а также 15 GB трафика ускорения интернет-соединения для одного устройства",
-    price: 79,
+      "Подписка Компакт даёт безлимитный доступ к серверам в различных локациях, а также 15 GB трафика ускорения интернет-соединения для одного устройства",
+    price: 99,
     buttonText: "💳 Оформить подписку Компакт",
     enabled: false,
     hwidDeviceLimit: 1,
@@ -75,7 +75,7 @@ export const SHOP_ITEMS: ShopItem[] = [
     id: "subscription_standard",
     title: "Подписка Стандарт на 4 недели",
     description:
-      "Подписка Стандарт даёт безлимитный доступ к 10 серверам в различных локациях, а также безлимитный трафик ускорения интернет-соединения для 2 устройств",
+      "Подписка Стандарт даёт безлимитный доступ к серверам в различных локациях, а также безлимитный трафик ускорения интернет-соединения. Поддерживает до 2 устройств",
     price: 179,
     buttonText: "💳 Оформить подписку Стандарт",
     enabled: true,
@@ -95,12 +95,32 @@ export const SHOP_ITEMS: ShopItem[] = [
     id: "subscription_premium",
     title: "Подписка Премиум на 4 недели",
     description:
-      "Подписка Премиум даёт безлимитный доступ к 15 серверам в различных локациях, а также безлимитный трафик ускорения интернет-соединения для до 10 устройств",
+      "Подписка Премиум даёт безлимитный доступ к серверам в различных локациях, а также безлимитный трафик ускорения интернет-соединения. Поддерживает до 5 устройств",
     price: 399,
     buttonText: "💳 Оформить подписку Премиум",
     enabled: true,
-    hwidDeviceLimit: 10,
+    hwidDeviceLimit: 5,
     // Когда появятся отдельные сквады: remnawaveInternalSquads + REMNAWAVE_PREMIUM_* в .env
+  },
+  {
+    id: "subscription_family",
+    title: "Подписка Семейная на 4 недели",
+    description:
+      "Безлимитный доступ к серверам и безлимитное ускорение. До 10 устройств — для семьи или нескольких гаджетов.",
+    price: 799,
+    buttonText: "👨‍👩‍👧 Семейная (до 10 устройств)",
+    enabled: true,
+    hwidDeviceLimit: 10,
+    remnawavePaidDescriptionTemplate: "Подписка семейная оплачена {date}",
+    remnawaveInternalSquads: [
+      {
+        uuidEnvVar: "REMNAWAVE_STANDARD_INTERNAL_SQUAD_UUID",
+        alternateUuidEnvVar: "REMNAWAVE_BASE_INTERNAL_SQUAD_UUID",
+        nameEnvVar: "REMNAWAVE_STANDARD_INTERNAL_SQUAD_NAME",
+        alternateNameEnvVar: "REMNAWAVE_BASE_INTERNAL_SQUAD_NAME",
+        fallbackSquadName: "Default-Squad",
+      },
+    ],
   },
   {
     id: "white_list_15",
@@ -119,6 +139,11 @@ export const SHOP_ITEMS: ShopItem[] = [
     enabled: false,
   },
 ];
+
+/** Позиции, которые показываются в магазине (скрыты `enabled: false`). */
+export function getVisibleShopItems(): ShopItem[] {
+  return SHOP_ITEMS.filter((item) => isShopItemEnabled(item));
+}
 
 export function getShopItemById(itemId: string): ShopItem | undefined {
   return SHOP_ITEMS.find((item) => item.id === itemId);
