@@ -13,7 +13,15 @@ export function getPool(): Pool {
         "DATABASE_URL is not set. Add it to .env (PostgreSQL connection string)."
       );
     }
-    pool = new Pool({ connectionString });
+    /**
+     * Если у роли нет USAGE на public, провайдер часто даёт отдельную схему (имя = пользователь).
+     * Пример: PG_SEARCH_PATH=myuser или myuser,public
+     */
+    const searchPath = process.env.PG_SEARCH_PATH?.trim();
+    pool = new Pool({
+      connectionString,
+      ...(searchPath ? { options: `-csearch_path=${searchPath}` } : {}),
+    });
   }
   return pool;
 }

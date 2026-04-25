@@ -1,32 +1,51 @@
+import { readFileSync } from "fs";
+import { join } from "path";
 import { getPool } from "./pool";
 
 /**
  * Verifies PostgreSQL connectivity at startup.
  */
+function isInsufficientPrivilege(err: unknown): boolean {
+  return (
+    typeof err === "object" &&
+    err !== null &&
+    "code" in err &&
+    (err as { code?: string }).code === "42501"
+  );
+}
+
 export async function initDatabase(): Promise<void> {
   const p = getPool();
   const client = await p.connect();
   try {
-    await client.query("SELECT 1");
-    // Optional DDL: some managed Postgres users may not have CREATE privileges in `public`.
-    // Payments logic can still work with in-memory fallback (see CryptoPayInvoiceStore).
+    try {
+      await client.query("SELECT 1");
+    } catch (e) {
+      if (isInsufficientPrivilege(e)) {
+        throw new Error(
+          "PostgreSQL: нет доступа к схеме (часто public). Варианты: выполнить от суперпользователя " +
+            "`GRANT USAGE ON SCHEMA public TO текущий_роль;` либо задать в .env свою схему, например " +
+            "`PG_SEARCH_PATH=имя_вашей_схемы` (см. .env.example)."
+        );
+      }
+      throw e;
+    }
+
+    // Optional DDL: sql/schema_bootstrap.sql (users, subscription_*, crypto_pay_invoices).
     if (process.env.DB_AUTO_MIGRATE === "true") {
-      await client.query(
-        `CREATE TABLE IF NOT EXISTS crypto_pay_invoices (
-          invoice_id BIGINT PRIMARY KEY,
-          tg_id BIGINT NOT NULL,
-          amount_units INTEGER NOT NULL,
-          asset TEXT NOT NULL,
-          amount_asset TEXT NOT NULL,
-          status TEXT NOT NULL DEFAULT 'active',
-          credited BOOLEAN NOT NULL DEFAULT FALSE,
-          created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
-          updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
-        )`
-      );
-      await client.query(
-        `CREATE INDEX IF NOT EXISTS idx_crypto_pay_invoices_tg_id ON crypto_pay_invoices (tg_id)`
-      );
+      try {
+        const bootstrapSql = readFileSync(join(process.cwd(), "sql", "schema_bootstrap.sql"), "utf8");
+        await client.query(bootstrapSql);
+      } catch (e) {
+        if (isInsufficientPrivilege(e)) {
+          console.warn(
+            "[db] DB_AUTO_MIGRATE: нет прав на CREATE в текущей схеме (42501). " +
+              "Отключите DB_AUTO_MIGRATE и примените sql/*.sql вручную от администратора БД, либо выдайте права на схему."
+          );
+        } else {
+          throw e;
+        }
+      }
     }
   } finally {
     client.release();

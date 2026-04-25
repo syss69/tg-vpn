@@ -51,6 +51,13 @@ export interface User {
 export interface SessionData {
   /** Текущее действие пользователя (ожидание ввода суммы и т.д.) */
   awaitingTopUpAmount: boolean;
+  /** Ожидание ввода промокода текстом */
+  awaitingPromoCode?: boolean;
+  /** Сообщение бота, в котором идёт ввод промокода (чтобы редактировать его, а не спамить новыми). */
+  promoPrompt?: {
+    chatId: number;
+    messageId: number;
+  };
   /** Инвойс Crypto Pay, ожидающий оплаты/проверки */
   pendingTopUpInvoiceId?: number;
   /** Отложенная покупка, ожидающая подтверждения */
@@ -58,5 +65,7 @@ export interface SessionData {
     itemId: string;
     /** Для докупки трафика — к какой подписке привязать */
     targetSubscriptionId?: string;
+    /** Username Telegram на момент подтверждения покупки */
+    telegramUsername?: string;
   };
 }

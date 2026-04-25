@@ -97,8 +97,8 @@ export class CryptoPayInvoiceStore {
   }
 
   async tryCreditInvoice(params: { invoiceId: number; tgId: number }): Promise<
-    | { ok: true; alreadyCredited: true; amountUnits: number }
-    | { ok: true; alreadyCredited: false; amountUnits: number }
+    | { ok: true; alreadyCredited: true; amountUnits: number; bonusUnits?: number }
+    | { ok: true; alreadyCredited: false; amountUnits: number; bonusUnits?: number }
     | { ok: false; error: string }
   > {
     try {
@@ -141,12 +141,53 @@ export class CryptoPayInvoiceStore {
            WHERE tg_id = $1`,
           [params.tgId, row.amount_units]
         );
+
+        // Бонус к пополнению (topup_bonus_pct): один ожидающий промокод → применяем к этому зачислению.
+        // Если таблиц нет / нет прав, это поймается общим catch и fallback-логикой.
+        let bonusUnits = 0;
+        const userIdRes = await client.query<{ id: number }>(`SELECT id FROM users WHERE tg_id = $1`, [params.tgId]);
+        const dbUserId = userIdRes.rows[0]?.id;
+        if (dbUserId !== undefined) {
+          const promoRes = await client.query<{ redemption_id: number; pct: number }>(
+            `SELECT r.id AS redemption_id, c.topup_bonus_pct AS pct
+             FROM promo_redemptions r
+             JOIN promo_codes c ON c.code = r.code
+             WHERE r.user_id = $1
+               AND r.applied_at IS NULL
+               AND c.kind = 'topup_bonus_pct'
+               AND (c.expires_at IS NULL OR c.expires_at > NOW())
+             ORDER BY r.redeemed_at DESC
+             LIMIT 1
+             FOR UPDATE`,
+            [dbUserId]
+          );
+          const promo = promoRes.rows[0];
+          const pct = promo?.pct ?? 0;
+          if (promo?.redemption_id && pct > 0 && pct <= 100) {
+            bonusUnits = Math.floor((row.amount_units * pct) / 100);
+            if (bonusUnits > 0) {
+              await client.query(
+                `UPDATE users SET balance = balance + $2, updated_at = NOW() WHERE tg_id = $1`,
+                [params.tgId, bonusUnits]
+              );
+            }
+            await client.query(`UPDATE promo_redemptions SET applied_at = NOW() WHERE id = $1`, [
+              promo.redemption_id,
+            ]);
+          }
+        }
+
         await client.query(
           `UPDATE crypto_pay_invoices SET credited = true, updated_at = NOW() WHERE invoice_id = $1`,
           [params.invoiceId]
         );
         await client.query("COMMIT");
-        return { ok: true, alreadyCredited: false, amountUnits: row.amount_units };
+        return {
+          ok: true,
+          alreadyCredited: false,
+          amountUnits: row.amount_units,
+          ...(bonusUnits > 0 ? { bonusUnits } : {}),
+        };
       } catch (e) {
         await client.query("ROLLBACK");
         if (this.shouldFallbackToMemory(e)) {

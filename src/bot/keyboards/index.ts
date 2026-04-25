@@ -1,6 +1,12 @@
 import { InlineKeyboard } from "grammy";
 import { Subscription } from "../../types";
-import { SHOP_ITEMS } from "../shop/catalog";
+import { getVisibleShopItems } from "../shop/catalog";
+
+/** Telegram: до 64 символов на подпись inline-кнопки */
+function truncateInlineButtonText(text: string, max = 64): string {
+  if (text.length <= max) return text;
+  return text.slice(0, max - 1) + "…";
+}
 
 /**
  * Главное меню бота — показывается при /start
@@ -10,6 +16,7 @@ export const mainMenuKeyboard = new InlineKeyboard()
   .text("🛒 Магазин", "shop")
   .row()
   .text("💳 Пополнить баланс", "top_up")
+  .text("🎟 Ввести промокод", "enter_promo")
   .row()
   .text("📱 Скачать приложение", "download_app");
 
@@ -43,10 +50,11 @@ export const afterActionKeyboard = new InlineKeyboard()
  */
 export function createShopKeyboard(): InlineKeyboard {
   const keyboard = new InlineKeyboard();
+  const items = getVisibleShopItems();
 
-  SHOP_ITEMS.forEach((item, index) => {
-    keyboard.text(item.buttonText, `buy_item:${item.id}`);
-    if (index < SHOP_ITEMS.length - 1) {
+  items.forEach((item, index) => {
+    keyboard.text(truncateInlineButtonText(item.buttonText), `buy_item:${item.id}`);
+    if (index < items.length - 1) {
       keyboard.row();
     }
   });

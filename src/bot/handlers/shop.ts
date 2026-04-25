@@ -10,7 +10,7 @@ import {
   afterActionKeyboard,
   backToMenuKeyboard,
 } from "../keyboards";
-import { getShopItemById, SHOP_ITEMS } from "../shop/catalog";
+import { getShopItemById, getVisibleShopItems, isShopItemEnabled } from "../shop/catalog";
 import { executePurchase } from "../shop/purchaseHandlers";
 import { InlineKeyboard } from "grammy";
 
@@ -117,6 +117,15 @@ async function showPurchaseConfirmation(
     return;
   }
 
+  if (!isShopItemEnabled(item)) {
+    await ctx.editMessageText(
+      `❌ <b>Нет в наличии</b>\n\n` +
+        `Товар «${item.title}» сейчас недоступен. Выберите другую позицию в магазине.`,
+      { parse_mode: "HTML", reply_markup: createShopKeyboard() }
+    );
+    return;
+  }
+
   const user = await userService.getOrCreate(userId, ctx.from?.username);
   const balance = user.balance;
   const deficit = Math.max(item.price - balance, 0);
@@ -128,7 +137,11 @@ async function showPurchaseConfirmation(
       })()
     : "";
 
-  ctx.session.pendingPurchase = { itemId, targetSubscriptionId };
+  ctx.session.pendingPurchase = {
+    itemId,
+    targetSubscriptionId,
+    telegramUsername: ctx.from?.username,
+  };
 
   await ctx.editMessageText(
     `🧾 <b>Подтверждение покупки</b>\n\n` +
@@ -156,6 +169,16 @@ async function executePendingPurchase(ctx: BotContext): Promise<void> {
     await ctx.editMessageText("⚠️ Товар не найден.", {
       reply_markup: backToMenuKeyboard,
     });
+    return;
+  }
+
+  if (!isShopItemEnabled(item)) {
+    ctx.session.pendingPurchase = undefined;
+    await ctx.editMessageText(
+      `❌ <b>Нет в наличии</b>\n\n` +
+        `Товар «${item.title}» больше не продаётся. Выберите другой тариф в магазине.`,
+      { parse_mode: "HTML", reply_markup: createShopKeyboard() }
+    );
     return;
   }
 
@@ -198,6 +221,7 @@ async function executePendingPurchase(ctx: BotContext): Promise<void> {
 
   const purchaseResult = await executePurchase(item.id, userId, {
     targetSubscriptionId: pending.targetSubscriptionId,
+    telegramUsername: pending.telegramUsername,
   });
   if (!purchaseResult.success) {
     await userService.topUpBalance(userId, item.price);
@@ -240,17 +264,23 @@ export async function handleShop(ctx: BotContext): Promise<void> {
   await ctx.answerCallbackQuery();
   ctx.session.pendingPurchase = undefined;
 
-  const shopLines = SHOP_ITEMS.map(
-    (item, index) =>
-      `${index + 1}. <b>${item.title}</b>\n` +
-      `   ${item.description}\n` +
-      `   💳 Цена: <b>${item.price} ед.</b>`
-  ).join("\n\n");
+  const visible = getVisibleShopItems();
+  const shopLines = visible
+    .map(
+      (item, index) =>
+        `${index + 1}. <b>${item.title}</b>\n` +
+        `   ${item.description}\n` +
+        `   💳 Цена: <b>${item.price} ед.</b>`
+    )
+    .join("\n\n");
 
-  await ctx.editMessageText(`🛒 <b>Магазин</b>\n\n${shopLines}\n\nВыберите товар:`, {
-    parse_mode: "HTML",
-    reply_markup: createShopKeyboard(),
-  });
+  await ctx.editMessageText(
+    `🛒 <b>Магазин</b>\n\n${shopLines.length > 0 ? `${shopLines}\n\n` : "Сейчас нет доступных позиций.\n\n"}Выберите товар:`,
+    {
+      parse_mode: "HTML",
+      reply_markup: createShopKeyboard(),
+    }
+  );
 }
 
 /**
@@ -275,6 +305,15 @@ export async function handleBuyItem(ctx: BotContext): Promise<void> {
     await ctx.editMessageText("⚠️ Этот товар не найден или уже недоступен.", {
       reply_markup: backToMenuKeyboard,
     });
+    return;
+  }
+
+  if (!isShopItemEnabled(item)) {
+    await ctx.editMessageText(
+      `❌ <b>Нет в наличии</b>\n\n` +
+        `Товар «${item.title}» сейчас недоступен. Откройте магазин снова.`,
+      { parse_mode: "HTML", reply_markup: createShopKeyboard() }
+    );
     return;
   }
 
@@ -331,6 +370,15 @@ export async function handleApplyTrafficToSubscription(ctx: BotContext): Promise
     return;
   }
 
+  if (!isShopItemEnabled(item)) {
+    await ctx.editMessageText(
+      `❌ <b>Нет в наличии</b>\n\n` +
+        `Пакет «${item.title}» сейчас недоступен.`,
+      { parse_mode: "HTML", reply_markup: createShopKeyboard() }
+    );
+    return;
+  }
+
   const user = await userService.getOrCreate(userId, ctx.from?.username);
   const selected = user.subscriptions.find((s) => s.id === parsed.subscriptionId);
   if (!selected) {
@@ -347,6 +395,21 @@ export async function handleApplyTrafficToSubscription(ctx: BotContext): Promise
   }
 
   await showPurchaseConfirmation(ctx, item.id, selected.id);
+}
+
+/**
+ * Нажатие на недоступный товар (🔒 в клавиатуре магазина).
+ */
+export async function handleShopUnavailable(ctx: BotContext): Promise<void> {
+  const data = ctx.callbackQuery?.data ?? "";
+  const prefix = "shop_unavailable:";
+  if (!data.startsWith(prefix)) return;
+  const itemId = data.slice(prefix.length);
+  const item = getShopItemById(itemId);
+  await ctx.answerCallbackQuery({
+    text: item ? `«${item.title}» сейчас нет в наличии.` : "Товар недоступен.",
+    show_alert: true,
+  });
 }
 
 export async function handleConfirmPurchase(ctx: BotContext): Promise<void> {
@@ -396,6 +459,13 @@ export async function handleTopUpAmount(ctx: BotContext): Promise<void> {
 
   const rawInput = ctx.message.text.trim();
   const amount = parseInt(rawInput, 10);
+
+  // Пытаемся удалить сообщение пользователя с суммой (чтобы не засорять чат).
+  try {
+    await ctx.deleteMessage();
+  } catch {
+    // ignore
+  }
 
   // Валидация ввода
   if (isNaN(amount) || amount <= 0) {
@@ -524,9 +594,14 @@ export async function handleCheckTopUp(ctx: BotContext): Promise<void> {
 
     const updatedUser = await userService.findById(userId);
     const already = credited.alreadyCredited;
+    const bonusLine =
+      !already && credited.bonusUnits && credited.bonusUnits > 0
+        ? `🎁 Бонус по промокоду: <b>+${credited.bonusUnits} ед.</b>\n`
+        : "";
     await ctx.editMessageText(
       (already ? `✅ <b>Платёж уже был учтён</b>\n\n` : `✅ <b>Оплата подтверждена</b>\n\n`) +
         `💳 Зачислено: <b>+${credited.amountUnits} ед.</b>\n` +
+        bonusLine +
         `💰 Баланс: <b>${updatedUser?.balance ?? "—"} ед.</b>`,
       {
         parse_mode: "HTML",

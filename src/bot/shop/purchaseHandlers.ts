@@ -1,9 +1,10 @@
-import { randomBytes } from "crypto";
 import { UserService } from "../../services/UserService";
 import { TrafficService } from "../../services/TrafficService";
 import { PanelApiService } from "../../services/PanelApiService";
+import { gbToBytes } from "../../services/RemnawaveClient";
 import { Subscription } from "../../types";
 import { getShopItemById } from "./catalog";
+import { formatSubscriptionUrlTelegramHtml } from "../subscriptionLinkHtml";
 
 export interface PurchaseResult {
   success: boolean;
@@ -12,6 +13,8 @@ export interface PurchaseResult {
 
 interface PurchaseOptions {
   targetSubscriptionId?: string;
+  /** @username в Telegram (без @), если есть */
+  telegramUsername?: string;
 }
 
 type PurchaseHandler = (
@@ -30,60 +33,60 @@ function formatSubscriptionSuccess(sub: Subscription): string {
     `📋 <b>Подписка активирована</b>\n` +
     `⏳ Период: <b>4 недели</b>\n` +
     `📅 До: <b>${new Date(sub.expiresAt).toLocaleDateString("ru-RU")}</b>\n\n` +
-    `🔗 <b>Ссылка подписки</b>:\n<code>${sub.subscriptionUrl}</code>`
+    `🔗 <b>Ссылка подписки</b>\n` +
+    `<i>Нажмите, чтобы открыть; удерживайте ссылку — «Копировать».</i>\n\n` +
+    `${formatSubscriptionUrlTelegramHtml(sub.subscriptionUrl)}`
   );
-}
-
-function buildSubscription(
-  planId: string,
-  planTitle: string,
-  panel: {
-    clientId: string;
-    email: string;
-    subscriptionUrl: string;
-  },
-  totalTrafficGb: number
-): Subscription {
-  const now = new Date();
-  const exp = new Date(now);
-  exp.setDate(exp.getDate() + SUBSCRIPTION_PERIOD_DAYS);
-  return {
-    id: randomBytes(8).toString("hex"),
-    planId,
-    planTitle,
-    panelClientUuid: panel.clientId,
-    panelEmail: panel.email,
-    subscriptionUrl: panel.subscriptionUrl,
-    expiresAt: exp.toISOString(),
-    purchasedAt: now.toISOString(),
-    totalTrafficGb,
-    usedTrafficGb: 0,
-  };
 }
 
 async function purchaseSubscriptionTier(
   userId: number,
   planId: string,
-  initialTrafficGb: number
+  initialTrafficGb: number,
+  extra?: { telegramUsername?: string }
 ): Promise<PurchaseResult> {
   const item = getShopItemById(planId);
-  const title = item?.title ?? planId;
+
+  const endsAt = new Date();
+  endsAt.setDate(endsAt.getDate() + SUBSCRIPTION_PERIOD_DAYS);
+
+  const pendingId = await userService.createPendingSubscription(userId, planId, {
+    pricePaid: item?.price ?? 0,
+    trafficLimitBytes: initialTrafficGb > 0 ? gbToBytes(initialTrafficGb) : null,
+    deviceLimit: item?.hwidDeviceLimit ?? null,
+    endsAt,
+  });
+  if (pendingId === null) {
+    return {
+      success: false,
+      details:
+        "Не удалось создать запись подписки в БД. Выполните миграцию (DB_AUTO_MIGRATE=true или sql/schema_full.sql).",
+    };
+  }
 
   const panel = await panelApi.createClientForSubscriptionPeriod(
     userId,
-    SUBSCRIPTION_PERIOD_DAYS
+    SUBSCRIPTION_PERIOD_DAYS,
+    {
+      initialTrafficGb,
+      planId,
+      telegramUsername: extra?.telegramUsername,
+      subscriptionRowId: pendingId,
+    }
   );
   if (!panel.ok) {
+    await userService.cancelPendingSubscription(pendingId, userId);
     return { success: false, details: panel.error };
   }
 
   const inboundId = panelApi.getInboundId();
   if (inboundId === null) {
+    await userService.cancelPendingSubscription(pendingId, userId);
     return { success: false, details: "На сервере не настроен PANEL_INBOUND_ID." };
   }
 
-  let totalGb = initialTrafficGb;
-  if (initialTrafficGb > 0) {
+  // Remnawave: лимит уже в createClientForSubscriptionPeriod (trafficLimitBytes); addTrafficGb удвоил бы пакет.
+  if (initialTrafficGb > 0 && !panelApi.usesRemnawavePanel()) {
     const added = await panelApi.addTrafficGb(
       inboundId,
       panel.clientId,
@@ -91,12 +94,19 @@ async function purchaseSubscriptionTier(
       initialTrafficGb
     );
     if (!added.ok) {
+      await userService.cancelPendingSubscription(pendingId, userId);
       return { success: false, details: added.error };
     }
   }
 
-  const sub = buildSubscription(planId, title, panel, totalGb);
-  await userService.addSubscription(userId, sub);
+  const sub = await userService.finalizeSubscription(pendingId, userId, panel);
+  if (!sub) {
+    await userService.cancelPendingSubscription(pendingId, userId);
+    return {
+      success: false,
+      details: "Панель ответила успешно, но не удалось зафиксировать подписку в БД.",
+    };
+  }
 
   return {
     success: true,
@@ -107,10 +117,14 @@ async function purchaseSubscriptionTier(
 const purchaseHandlers: Record<string, PurchaseHandler> = {
   subscription_compact: async (userId) =>
     purchaseSubscriptionTier(userId, "subscription_compact", 15),
-  subscription_standard: async (userId) =>
-    purchaseSubscriptionTier(userId, "subscription_standard", 0),
+  subscription_standard: async (userId, options) =>
+    purchaseSubscriptionTier(userId, "subscription_standard", 0, {
+      telegramUsername: options?.telegramUsername,
+    }),
   subscription_premium: async (userId) =>
     purchaseSubscriptionTier(userId, "subscription_premium", 0),
+  subscription_family: async (userId) =>
+    purchaseSubscriptionTier(userId, "subscription_family", 0),
 };
 
 export async function executePurchase(
