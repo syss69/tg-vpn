@@ -14,6 +14,7 @@ import {
   handleShop,
   handleTopUp,
   handleCheckTopUp,
+  handleCancelTopUp,
   handleShopUnavailable,
   handleTopUpAmount,
 } from "./handlers/shop";
@@ -59,6 +60,7 @@ export function createBot(token: string): Bot<BotContext> {
   bot.callbackQuery("top_up", handleTopUp);
   bot.callbackQuery("enter_promo", handleEnterPromo);
   bot.callbackQuery(/^check_topup:/, handleCheckTopUp);
+  bot.callbackQuery(/^cancel_topup:/, handleCancelTopUp);
   bot.callbackQuery("download_app", handleDownloadApp);
   bot.callbackQuery("back_to_menu", handleBackToMenu);
 
