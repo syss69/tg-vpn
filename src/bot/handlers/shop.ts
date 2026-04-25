@@ -529,7 +529,7 @@ export async function handleTopUpAmount(ctx: BotContext): Promise<void> {
     keyboard.url("💳 Оплатить", payUrl).row();
   }
   keyboard.text("✅ Проверить оплату", `check_topup:${invoice.invoice_id}`).row();
-  keyboard.text("⬅️ Главное меню", "back_to_menu");
+  keyboard.text("❌ Отменить оплату", `cancel_topup:${invoice.invoice_id}`);
 
   await ctx.reply(
     `🧾 <b>Счёт на оплату создан</b>\n\n` +
@@ -627,7 +627,42 @@ export async function handleCheckTopUp(ctx: BotContext): Promise<void> {
       reply_markup: new InlineKeyboard()
         .text("✅ Проверить оплату", `check_topup:${invoiceId}`)
         .row()
-        .text("⬅️ Главное меню", "back_to_menu"),
+        .text("❌ Отменить оплату", `cancel_topup:${invoiceId}`)
+      ,
     }
+  );
+}
+
+/**
+ * MVP: «Отмена» = отмена в боте (не отзывает инвойс в Crypto Pay).
+ * Если пользователь успел оплатить до отмены — просим обратиться в поддержку.
+ */
+export async function handleCancelTopUp(ctx: BotContext): Promise<void> {
+  await ctx.answerCallbackQuery();
+  const userId = ctx.from?.id;
+  if (!userId) return;
+
+  const data = ctx.callbackQuery?.data ?? "";
+  const prefix = "cancel_topup:";
+  if (!data.startsWith(prefix)) return;
+
+  const invoiceId = parseInt(data.slice(prefix.length), 10);
+  if (!invoiceId || Number.isNaN(invoiceId)) {
+    await ctx.editMessageText("⚠️ Некорректный идентификатор счёта.", {
+      reply_markup: backToMenuKeyboard,
+    });
+    return;
+  }
+
+  ctx.session.awaitingTopUpAmount = false;
+  ctx.session.pendingTopUpInvoiceId = undefined;
+  ctx.session.awaitingTopUpAmount = true;
+
+  await ctx.editMessageText(
+    `❌ <b>Пополнение отменено</b>\n\n` +
+      `Счёт <code>${invoiceId}</code> больше не используется в боте.\n\n` +
+      `⚠️ Если вы <b>успели оплатить</b> этот счёт до отмены — пожалуйста обратитесь в поддержку и приложите номер счёта: <code>${invoiceId}</code>.\n\n` +
+      `Введите <b>новую</b> сумму пополнения (только число, например <code>1000</code>):`,
+    { parse_mode: "HTML", reply_markup: backToMenuKeyboard }
   );
 }
