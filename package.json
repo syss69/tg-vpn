@@ -9,13 +9,15 @@
     "start": "node -r dotenv/config dist/index.js"
   },
   "dependencies": {
+    "dotenv": "^16.6.1",
+    "express": "^5.2.1",
     "grammy": "^1.21.1",
     "pg": "^8.13.1"
   },
   "devDependencies": {
+    "@types/express": "^5.0.6",
     "@types/node": "^20.11.0",
     "@types/pg": "^8.11.10",
-    "dotenv": "^16.4.1",
     "ts-node": "^10.9.2",
     "typescript": "^5.3.3"
   }

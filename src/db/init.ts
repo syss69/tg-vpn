@@ -1,4 +1,4 @@
-import { readFileSync } from "fs";
+import { existsSync, readFileSync } from "fs";
 import { join } from "path";
 import { getPool } from "./pool";
 
@@ -12,6 +12,41 @@ function isInsufficientPrivilege(err: unknown): boolean {
     "code" in err &&
     (err as { code?: string }).code === "42501"
   );
+}
+
+function pgErrorDetail(err: unknown): string {
+  if (err instanceof Error) return err.message;
+  return String(err);
+}
+
+function warnMigrateDenied(filePath: string, err: unknown): void {
+  console.warn(`[db] Ошибка применения ${filePath}: ${pgErrorDetail(err)}`);
+  console.warn(
+    "[db] Если это 42501: нужны права на CREATE в схеме (часто `GRANT CREATE ON SCHEMA public TO …` от владельца БД). " +
+      "На managed-хостингах проверьте, что роль в DATABASE_URL совпадает с той, которой выдали GRANT. " +
+      "Либо DB_AUTO_MIGRATE=false и выполните sql/*.sql вручную."
+  );
+}
+
+async function runSqlFile(
+  client: { query: (text: string) => Promise<unknown> },
+  filePath: string,
+  okLog: string
+): Promise<boolean> {
+  if (!existsSync(filePath)) {
+    return false;
+  }
+  try {
+    await client.query(readFileSync(filePath, "utf8"));
+    console.log(`[db] ${okLog}`);
+    return true;
+  } catch (e) {
+    if (isInsufficientPrivilege(e)) {
+      warnMigrateDenied(filePath, e);
+      return false;
+    }
+    throw e;
+  }
 }
 
 export async function initDatabase(): Promise<void> {
@@ -31,21 +66,18 @@ export async function initDatabase(): Promise<void> {
       throw e;
     }
 
-    // Optional DDL: sql/schema_bootstrap.sql (users, subscription_*, crypto_pay_invoices).
     if (process.env.DB_AUTO_MIGRATE === "true") {
-      try {
-        const bootstrapSql = readFileSync(join(process.cwd(), "sql", "schema_bootstrap.sql"), "utf8");
-        await client.query(bootstrapSql);
-      } catch (e) {
-        if (isInsufficientPrivilege(e)) {
-          console.warn(
-            "[db] DB_AUTO_MIGRATE: нет прав на CREATE в текущей схеме (42501). " +
-              "Отключите DB_AUTO_MIGRATE и примените sql/*.sql вручную от администратора БД, либо выдайте права на схему."
-          );
-        } else {
-          throw e;
-        }
-      }
+      const sqlDir = join(process.cwd(), "sql");
+      await runSqlFile(
+        client,
+        join(sqlDir, "schema_bootstrap.sql"),
+        "Применён sql/schema_bootstrap.sql"
+      );
+      await runSqlFile(
+        client,
+        join(sqlDir, "migration_happ_proxy.sql"),
+        "Применена sql/migration_happ_proxy.sql (обновление со старой колонки key / индексы)"
+      );
     }
   } finally {
     client.release();

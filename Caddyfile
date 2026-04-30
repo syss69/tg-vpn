@@ -1,0 +1,7 @@
+# Замените vpn.example.com на ваш домен и пути к сертификатам Let's Encrypt.
+# APP_BASE_URL в .env должен совпадать с этим хостом (https://vpn.example.com).
+
+gtkl.o190.com{
+    tls /etc/letsencrypt/live/vpn.example.com/fullchain.pem /etc/letsencrypt/live/vpn.example.com/privkey.pem
+    reverse_proxy app:3000
+}

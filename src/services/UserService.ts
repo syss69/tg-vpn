@@ -1,7 +1,9 @@
 import { Pool } from "pg";
+import { randomBytes } from "crypto";
 import { getPool } from "../db/pool";
 import { Subscription, User } from "../types";
 import { gbToBytes } from "./RemnawaveClient";
+import { createSubscriptionToken } from "./createSubscriptionToken.service";
 
 interface UserRow {
   tg_id: number;
@@ -18,23 +20,69 @@ interface SubscriptionDbRow {
   id: number;
   plan_id: string;
   plan_title: string;
-  key: string | null;
+  subscription_token: string | null;
+  public_token: string | null;
+  raw_subscription_url: string | null;
   traffic: string | null;
   starts_at: Date;
   ends_at: Date;
   panel_client_id: string | null;
 }
 
-function mapDbRowToSubscription(row: SubscriptionDbRow, panelEmail: string): Subscription {
+interface SubscriptionByPublicTokenRow {
+  subscription_id: number;
+  tg_id: number;
+  plan_id: string;
+  plan_title: string;
+  panel_client_id: string | null;
+  public_token: string | null;
+  raw_subscription_url: string | null;
+  starts_at: Date;
+  ends_at: Date;
+  status: string;
+  traffic: string | null;
+}
+
+interface SubscriptionByInstallTokenRow {
+  subscription_id: number;
+  tg_id: number;
+  plan_id: string;
+  plan_title: string;
+  panel_client_id: string | null;
+  public_token: string | null;
+  raw_subscription_url: string | null;
+  starts_at: Date;
+  ends_at: Date;
+  status: string;
+  traffic: string | null;
+  proxy_token: string;
+}
+
+function buildInstallUrlByToken(token: string): string {
+  const baseRaw = process.env.APP_BASE_URL?.trim();
+  if (baseRaw && baseRaw.length > 0) {
+    const base = baseRaw.replace(/\/$/, "");
+    return `${base}/key/${token}`;
+  }
+  return `/key/${token}`;
+}
+
+function mapDbRowToSubscription(
+  row: SubscriptionDbRow,
+  panelEmail: string,
+  overrideToken?: string
+): Subscription {
   const trafficBytes = row.traffic != null && row.traffic !== "" ? Number(row.traffic) : 0;
   const totalTrafficGb = trafficBytes > 0 ? trafficBytes / (1024 * 1024 * 1024) : 0;
+  const installToken = overrideToken ?? row.subscription_token ?? row.public_token;
+  const subscriptionUrl = installToken ? buildInstallUrlByToken(installToken) : "";
   return {
     id: String(row.id),
     planId: row.plan_id,
     planTitle: row.plan_title,
     panelClientUuid: row.panel_client_id ?? "",
     panelEmail,
-    subscriptionUrl: row.key ?? "",
+    subscriptionUrl,
     expiresAt: row.ends_at.toISOString(),
     purchasedAt: row.starts_at.toISOString(),
     totalTrafficGb,
@@ -67,6 +115,11 @@ export class UserService {
     return getPool();
   }
 
+  /** Публичный URL-safe токен для install-ссылки (/key/:token). */
+  private generatePublicToken(byteLength = 18): string {
+    return randomBytes(byteLength).toString("base64url");
+  }
+
   /** Внутренний id строки users.id по Telegram id (subscriptions.user_id ссылается на него). */
   private async getDbUserIdByTgId(tgId: number): Promise<number | null> {
     const r = await this.pool.query<{ id: number }>(`SELECT id FROM users WHERE tg_id = $1`, [tgId]);
@@ -75,11 +128,22 @@ export class UserService {
 
   private async loadSubscriptionsFromDatabase(tgId: number): Promise<Subscription[]> {
     const res = await this.pool.query<SubscriptionDbRow>(
-      `SELECT s.id, t.code AS plan_id, t.name AS plan_title, s.key, s.traffic::text AS traffic,
+      `SELECT s.id, t.code AS plan_id, t.name AS plan_title,
+              st.token AS subscription_token,
+              s.public_token, s.raw_subscription_url, s.traffic::text AS traffic,
               s.starts_at, s.ends_at, s.panel_client_id
        FROM subscriptions s
        JOIN subscription_types t ON t.id = s.subscription_type_id
        JOIN users u ON u.id = s.user_id
+       LEFT JOIN LATERAL (
+         SELECT st.token
+         FROM subscription_tokens st
+         WHERE st.subscription_id = s.id
+           AND st.is_active = TRUE
+           AND (st.expires_at IS NULL OR st.expires_at > NOW())
+         ORDER BY st.created_at DESC
+         LIMIT 1
+       ) st ON true
        WHERE u.tg_id = $1
          AND s.status NOT IN ('cancelled', 'pending_payment')
        ORDER BY s.id`,
@@ -97,6 +161,160 @@ export class UserService {
     const row = res.rows[0];
     if (!row) return undefined;
     return rowToUser(row, await this.tryLoadSubscriptionsFromDatabase(userId));
+  }
+
+  async findSubscriptionByPublicToken(token: string): Promise<{
+    subscriptionId: string;
+    tgUserId: number;
+    planId: string;
+    planTitle: string;
+    panelClientUuid: string;
+    panelEmail: string;
+    publicToken: string;
+    rawSubscriptionUrl: string;
+    expiresAt: string;
+    purchasedAt: string;
+    status: string;
+    totalTrafficGb: number;
+    usedTrafficGb: number;
+  } | null> {
+    const normalizedToken = token.trim();
+    if (!normalizedToken) return null;
+    if (!/^[A-Za-z0-9_-]+$/.test(normalizedToken)) return null;
+
+    const res = await this.pool.query<SubscriptionByPublicTokenRow>(
+      `SELECT s.id AS subscription_id,
+              u.tg_id,
+              t.code AS plan_id,
+              t.name AS plan_title,
+              s.panel_client_id,
+              s.public_token,
+              s.raw_subscription_url,
+              s.starts_at,
+              s.ends_at,
+              s.status,
+              s.traffic::text AS traffic
+       FROM subscriptions s
+       JOIN subscription_types t ON t.id = s.subscription_type_id
+       JOIN users u ON u.id = s.user_id
+       WHERE s.public_token = $1
+       LIMIT 1`,
+      [normalizedToken]
+    );
+    const row = res.rows[0];
+    if (!row || !row.public_token) return null;
+
+    const trafficBytes = row.traffic != null && row.traffic !== "" ? Number(row.traffic) : 0;
+    const totalTrafficGb = trafficBytes > 0 ? trafficBytes / (1024 * 1024 * 1024) : 0;
+
+    return {
+      subscriptionId: String(row.subscription_id),
+      tgUserId: row.tg_id,
+      planId: row.plan_id,
+      planTitle: row.plan_title,
+      panelClientUuid: row.panel_client_id ?? "",
+      panelEmail: "",
+      publicToken: row.public_token,
+      rawSubscriptionUrl: row.raw_subscription_url ?? "",
+      expiresAt: row.ends_at.toISOString(),
+      purchasedAt: row.starts_at.toISOString(),
+      status: row.status,
+      totalTrafficGb,
+      usedTrafficGb: 0,
+    };
+  }
+
+  private async findLatestActiveSubscriptionToken(subscriptionId: number): Promise<string | null> {
+    const tokenRes = await this.pool.query<{ token: string }>(
+      `SELECT st.token
+       FROM subscription_tokens st
+       WHERE st.subscription_id = $1
+         AND st.is_active = TRUE
+         AND (st.expires_at IS NULL OR st.expires_at > NOW())
+       ORDER BY st.created_at DESC
+       LIMIT 1`,
+      [subscriptionId]
+    );
+    return tokenRes.rows[0]?.token ?? null;
+  }
+
+  async findSubscriptionByInstallToken(token: string): Promise<{
+    subscriptionId: string;
+    tgUserId: number;
+    planId: string;
+    planTitle: string;
+    panelClientUuid: string;
+    panelEmail: string;
+    publicToken: string;
+    rawSubscriptionUrl: string;
+    expiresAt: string;
+    purchasedAt: string;
+    status: string;
+    totalTrafficGb: number;
+    usedTrafficGb: number;
+    proxyToken: string;
+  } | null> {
+    const normalizedToken = token.trim();
+    if (!normalizedToken) return null;
+    if (!/^[A-Za-z0-9_-]+$/.test(normalizedToken)) return null;
+
+    const tokenRes = await this.pool.query<SubscriptionByInstallTokenRow>(
+      `SELECT s.id AS subscription_id,
+              u.tg_id,
+              t.code AS plan_id,
+              t.name AS plan_title,
+              s.panel_client_id,
+              s.public_token,
+              s.raw_subscription_url,
+              s.starts_at,
+              s.ends_at,
+              s.status,
+              s.traffic::text AS traffic,
+              st.token AS proxy_token
+       FROM subscription_tokens st
+       JOIN subscriptions s ON s.id = st.subscription_id
+       JOIN subscription_types t ON t.id = s.subscription_type_id
+       JOIN users u ON u.id = s.user_id
+       WHERE st.token = $1
+         AND st.is_active = TRUE
+         AND (st.expires_at IS NULL OR st.expires_at > NOW())
+       LIMIT 1`,
+      [normalizedToken]
+    );
+    const tokenRow = tokenRes.rows[0];
+
+    if (tokenRow) {
+      const trafficBytes = tokenRow.traffic != null && tokenRow.traffic !== "" ? Number(tokenRow.traffic) : 0;
+      const totalTrafficGb = trafficBytes > 0 ? trafficBytes / (1024 * 1024 * 1024) : 0;
+
+      return {
+        subscriptionId: String(tokenRow.subscription_id),
+        tgUserId: tokenRow.tg_id,
+        planId: tokenRow.plan_id,
+        planTitle: tokenRow.plan_title,
+        panelClientUuid: tokenRow.panel_client_id ?? "",
+        panelEmail: "",
+        publicToken: tokenRow.public_token ?? "",
+        rawSubscriptionUrl: tokenRow.raw_subscription_url ?? "",
+        expiresAt: tokenRow.ends_at.toISOString(),
+        purchasedAt: tokenRow.starts_at.toISOString(),
+        status: tokenRow.status,
+        totalTrafficGb,
+        usedTrafficGb: 0,
+        proxyToken: tokenRow.proxy_token,
+      };
+    }
+
+    const legacySubscription = await this.findSubscriptionByPublicToken(normalizedToken);
+    if (!legacySubscription) {
+      return null;
+    }
+
+    const latestActiveToken = await this.findLatestActiveSubscriptionToken(Number(legacySubscription.subscriptionId));
+    return {
+      ...legacySubscription,
+      proxyToken: latestActiveToken ?? legacySubscription.publicToken,
+    };
   }
 
   /** Таблица subscriptions может отсутствовать до миграции — тогда только legacy JSON. */
@@ -226,7 +444,8 @@ export class UserService {
         [dbUserId, typeId, params.pricePaid, traffic, params.deviceLimit, params.endsAt]
       );
       return ins.rows[0]?.id ?? null;
-    } catch {
+    } catch (e) {
+      console.warn("[UserService] createPendingSubscription failed:", e);
       return null;
     }
   }
@@ -253,35 +472,72 @@ export class UserService {
       return null;
     }
     const client = await this.pool.connect();
+    let committed = false;
     try {
       await client.query("BEGIN");
+      const publicToken = this.generatePublicToken();
       const upd = await client.query(
         `UPDATE subscriptions SET
           status = 'active',
           panel_client_id = $2,
-          key = $3,
+          public_token = $3,
+          raw_subscription_url = $4,
           updated_at = NOW()
-        WHERE id = $1 AND user_id = $4 AND status = 'pending_payment'
+        WHERE id = $1 AND user_id = $5 AND status = 'pending_payment'
         RETURNING id`,
-        [subscriptionRowId, panel.clientId, panel.subscriptionUrl, dbUserId]
+        [subscriptionRowId, panel.clientId, publicToken, panel.subscriptionUrl, dbUserId]
       );
       if ((upd.rowCount ?? 0) === 0) {
         await client.query("ROLLBACK");
         return null;
       }
       const r = await client.query<SubscriptionDbRow>(
-        `SELECT s.id, t.code AS plan_id, t.name AS plan_title, s.key, s.traffic::text AS traffic,
+        `SELECT s.id, t.code AS plan_id, t.name AS plan_title,
+                st.token AS subscription_token,
+                s.public_token, s.raw_subscription_url, s.traffic::text AS traffic,
                 s.starts_at, s.ends_at, s.panel_client_id
          FROM subscriptions s
          JOIN subscription_types t ON t.id = s.subscription_type_id
+         LEFT JOIN LATERAL (
+           SELECT st.token
+           FROM subscription_tokens st
+           WHERE st.subscription_id = s.id
+             AND st.is_active = TRUE
+             AND (st.expires_at IS NULL OR st.expires_at > NOW())
+           ORDER BY st.created_at DESC
+           LIMIT 1
+         ) st ON true
          WHERE s.id = $1`,
         [subscriptionRowId]
       );
       await client.query("COMMIT");
+      committed = true;
       const row = r.rows[0];
-      return row ? mapDbRowToSubscription(row, panel.email) : null;
+      if (!row) {
+        return null;
+      }
+
+      const createdToken = await createSubscriptionToken({
+        subscriptionId: subscriptionRowId,
+        expiresAt: row.ends_at,
+      });
+
+      const tokenRes = await this.pool.query<{ token: string }>(
+        `SELECT token
+         FROM subscription_tokens
+         WHERE subscription_id = $1
+           AND is_active = TRUE
+         ORDER BY created_at DESC
+         LIMIT 1`,
+        [subscriptionRowId]
+      );
+      const subscriptionToken = tokenRes.rows[0]?.token ?? createdToken.token;
+
+      return mapDbRowToSubscription(row, panel.email, subscriptionToken);
     } catch (e) {
-      await client.query("ROLLBACK");
+      if (!committed) {
+        await client.query("ROLLBACK");
+      }
       throw e;
     } finally {
       client.release();
@@ -293,7 +549,7 @@ export class UserService {
     const client = await this.pool.connect();
     try {
       await client.query("BEGIN");
-      const r = await client.query<UserRow>(
+      const r = await this.pool.query<UserRow>(
         `SELECT tg_id, username, first_name, language_code, balance, purchased_keys, traffic_wallet_gb, created_at
          FROM users WHERE tg_id = $1 FOR UPDATE`,
         [userId]
@@ -370,7 +626,7 @@ export class UserService {
     const client = await this.pool.connect();
     try {
       await client.query("BEGIN");
-      const r = await client.query<UserRow>(
+      const r = await this.pool.query<UserRow>(
         `SELECT tg_id, purchased_keys, traffic_wallet_gb
          FROM users WHERE tg_id = $1 FOR UPDATE`,
         [userId]
