@@ -52,7 +52,7 @@ export function isShopItemEnabled(item: ShopItem): boolean {
 export const SHOP_ITEMS: ShopItem[] = [
   {
     id: "subscription_compact",
-    title: "Подписка Компакт на 4 недели",
+    title: "Подписка Компакт на 1 месяц",
     description:
       "Подписка Компакт даёт безлимитный доступ к серверам в различных локациях, а также 15 GB трафика ускорения интернет-соединения для одного устройства",
     price: 99,
@@ -73,10 +73,10 @@ export const SHOP_ITEMS: ShopItem[] = [
   },
   {
     id: "subscription_standard",
-    title: "Подписка Стандарт на 4 недели",
+    title: "Подписка Стандарт на 1 месяц",
     description:
       "Подписка Стандарт даёт безлимитный доступ к серверам в различных локациях, а также безлимитный трафик ускорения интернет-соединения. Поддерживает до 2 устройств",
-    price: 179,
+    price: 189,
     buttonText: "💳 Оформить подписку Стандарт",
     enabled: true,
     hwidDeviceLimit: 2,
@@ -93,10 +93,10 @@ export const SHOP_ITEMS: ShopItem[] = [
   },
   {
     id: "subscription_premium",
-    title: "Подписка Премиум на 4 недели",
+    title: "Подписка Премиум на 1 месяц",
     description:
       "Подписка Премиум даёт безлимитный доступ к серверам в различных локациях, а также безлимитный трафик ускорения интернет-соединения. Поддерживает до 5 устройств",
-    price: 399,
+    price: 379,
     buttonText: "💳 Оформить подписку Премиум",
     enabled: true,
     hwidDeviceLimit: 5,
@@ -104,10 +104,10 @@ export const SHOP_ITEMS: ShopItem[] = [
   },
   {
     id: "subscription_family",
-    title: "Подписка Семейная на 4 недели",
+    title: "Подписка Семейная на 1 месяц",
     description:
       "Безлимитный доступ к серверам и безлимитное ускорение. До 10 устройств — для семьи или нескольких гаджетов.",
-    price: 799,
+    price: 669,
     buttonText: "👨‍👩‍👧 Семейная (до 10 устройств)",
     enabled: true,
     hwidDeviceLimit: 10,

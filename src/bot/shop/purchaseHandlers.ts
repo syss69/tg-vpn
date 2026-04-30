@@ -22,7 +22,7 @@ type PurchaseHandler = (
   options?: PurchaseOptions
 ) => Promise<PurchaseResult>;
 
-const SUBSCRIPTION_PERIOD_DAYS = 28;
+const SUBSCRIPTION_PERIOD_DAYS = 31;
 
 const userService = new UserService();
 const trafficService = new TrafficService();
